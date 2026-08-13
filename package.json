@@ -1,0 +1,19 @@
+{
+  "name": "bazi-system",
+  "version": "1.0.0",
+  "description": "八字命理助手 - 排盘与趋势解读 Web 应用",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "lunar-javascript": "^1.7.7"
+  }
+}

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>八字命理助手 ✨</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">☯</span>
+        <div>
+          <h1>八字命理助手</h1>
+          <p class="tagline">填出生信息，看看你的命局趋势</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="themeBtn" class="icon-btn" title="切换主题">🌙</button>
+      </div>
+    </header>
+
+    <main id="chat" class="chat"></main>
+
+    <section class="composer">
+      <button id="formToggle" class="ghost-btn" title="详细填写">⌨ 详细填写</button>
+      <form id="formPanel" class="form-panel" hidden>
+        <div class="row">
+          <label>公历生日<input type="date" id="fDate" /></label>
+          <label>出生时辰<input type="time" id="fTime" /></label>
+        </div>
+        <div class="row">
+          <label>性别
+            <select id="fGender"><option value="">请选择</option><option value="男">男</option><option value="女">女</option></select>
+          </label>
+          <label>出生城市<input type="text" id="fCity" placeholder="如 北京 / 上海" /></label>
+        </div>
+        <button type="submit" class="primary-btn">提交信息排盘</button>
+      </form>
+      <form id="msgForm" class="msg-form">
+        <input id="msgInput" type="text" placeholder="一句话也行：1990年5月20日下午2点半，男，北京" autocomplete="off" />
+        <button type="submit" class="send-btn">发送</button>
+      </form>
+      <p class="disclaimer">⚠️ 本工具仅供娱乐与文化研究，结果不构成任何医疗、法律、投资等建议。</p>
+    </section>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

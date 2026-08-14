@@ -34,7 +34,11 @@
           <label>性别
             <select id="fGender"><option value="">请选择</option><option value="男">男</option><option value="女">女</option></select>
           </label>
-          <label>出生城市<input type="text" id="fCity" placeholder="如 北京 / 上海" /></label>
+          <label>出生城市/地点<input type="text" id="fCity" placeholder="如 杭州 / 绵阳 / 县名均可" /></label>
+        </div>
+        <div class="row">
+          <label>出生经度（选填）<input type="number" id="fLng" step="0.01" min="-180" max="180" placeholder="留空自动估算，如 120.15" /></label>
+          <span class="hint">不知道经度？填城市即可自动匹配；乡镇会按东经120°近似</span>
         </div>
         <button type="submit" class="primary-btn">提交信息排盘</button>
       </form>

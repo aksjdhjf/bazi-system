@@ -5,6 +5,7 @@ const path = require('path');
 const { extract, checkCrisis, CRISIS_REPLY } = require('./src/nlp');
 const { computeChart } = require('./src/bazi');
 const { buildReport } = require('./src/interpret');
+const { search, chartTerms } = require('./src/corpus');
 
 const app = express();
 app.use(express.json());
@@ -34,14 +35,31 @@ app.post('/api/chat', (req, res) => {
     }
     // 3) 排盘引擎（代码精确计算）
     const chart = computeChart(fields);
-    // 4) 解读层（规则引擎；可在此接入 LLM，见 README）
+    // 4) 解读层（滴天髓逻辑规则引擎；离线可用）
     const report = buildReport(chart);
+    // 4.5) 原书参考（基于 OCR 语料检索《滴天髓》，语料就绪后自动生效）
+    const refs = search(chartTerms(chart), 2);
+    if (refs.length) {
+      const lines = refs.map((r) => `（《滴天髓》原书·第${r.page}页）${r.text}`);
+      report.push({ key: '原书参考', text: '以下为《滴天髓》相关原文片段，供参究：\n' + lines.join('\n') });
+    }
     // 5) 合规过滤已内置于解读模板（无绝对化断言）
+    // 6) LLM+RAG 增强（可选）：若配置 LLM_API_KEY，可在此用 corpus.search 检索原书章节
+    //    作为检索增强语料，连同 chart 与结构化知识构造 prompt 调用大模型，
+    //    用其返回替换 report。默认走规则引擎，离线稳定。
     res.json({ status: 'done', chart, report, disclaimer: DISCLAIMER });
   } catch (e) {
     console.error(e);
     res.status(500).json({ status: 'error', message: '排盘出错：' + e.message });
   }
+});
+
+// 原书语料检索端点（供高级用户 / LLM 接入查阅《滴天髓》原文片段）
+app.get('/api/corpus', (req, res) => {
+  const q = String(req.query.q || '');
+  const terms = [...new Set((q.match(/[一-龥]/g) || []))];
+  const hits = search(terms.length ? terms : ['乙木'], 5);
+  res.json({ query: q, hits });
 });
 
 const PORT = process.env.PORT || 3000;

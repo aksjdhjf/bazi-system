@@ -3,3 +3,7 @@ node_modules/
 npm-debug.log
 *.log
 .DS_Store
+
+# 部署无需的中间产物（保留 data/ditiansui_pages.json 供"原书参考"检索使用）
+tools/
+data/ditiansui_raw.txt

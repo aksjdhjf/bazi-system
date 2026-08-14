@@ -70,7 +70,8 @@ function renderReport(chart, report, disclaimer) {
   addKV('格局', chart.geju);
   addKV('用神 / 喜神', `${chart.yongshen} / ${chart.xishen}`);
   addKV('忌神', chart.jishen);
-  addKV('真太阳时', `${chart.birth.true_solar_time}（经度${chart.birth.longitude}°E，校正${chart.birth.long_corr}分）`);
+  const approxNote = chart.birth.longitude_approx ? '，经度按120°E近似' : '';
+  addKV('真太阳时', `${chart.birth.true_solar_time}（经度${chart.birth.longitude}°E，校正${chart.birth.long_corr}分${approxNote}）`);
   det.appendChild(kv);
   // 五行
   const wx = document.createElement('div'); wx.className = 'tags';
@@ -150,9 +151,11 @@ formPanel.onsubmit = (e) => {
   const tm = document.getElementById('fTime').value;
   const g = document.getElementById('fGender').value;
   const c = document.getElementById('fCity').value.trim();
+  const lngRaw = document.getElementById('fLng').value.trim();
   if (!d) { alert('请填写公历生日'); return; }
   const [y, m, day] = d.split('-').map(Number);
   const f = { year: y, month: m, day, gender: g || undefined, city: c || undefined };
+  if (lngRaw) { f.longitude = parseFloat(lngRaw); f.longitude_approx = false; }
   if (tm) { const [h, mi] = tm.split(':').map(Number); f.hour = h; f.minute = mi; }
   known = { ...known, ...f };
   const summary = `${y}年${m}月${day}日${tm ? ' ' + tm : ''}，${g || ''}，${c || ''}`;

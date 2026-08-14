@@ -180,6 +180,7 @@ function computeChart(input) {
       gender: input.gender,
       longitude: input.longitude,
       city: input.city || '',
+      longitude_approx: !!input.longitude_approx,
       true_solar_time: tst.tstText,
       tst_shifted: tst.shifted,
       eq_time: tst.E,

@@ -48,55 +48,70 @@ function typing() {
 // 渲染报告
 function renderReport(chart, report, disclaimer) {
   const box = document.createElement('div'); box.className = 'report';
-  report.forEach((s) => {
+  const s = chart.sizhu;
+
+  // 紧凑命盘条（始终可见，但细小——满足"表格变小"）
+  const strip = document.createElement('div'); strip.className = 'chart-strip';
+  const csCells = [
+    { k: '四柱', v: `${s.year} ${s.month} ${s.day} ${s.hour}`, pillars: true },
+    { k: '日主', v: `${chart.day_master}（${chart.strength}）` },
+    { k: '格局', v: chart.geju },
+    { k: '用神', v: chart.yongshen },
+  ];
+  csCells.forEach((c) => {
+    const cell = document.createElement('div'); cell.className = 'cs-cell' + (c.pillars ? ' pillars' : '');
+    const k = document.createElement('span'); k.className = 'k'; k.textContent = c.k;
+    const v = document.createElement('span'); v.className = 'v'; v.textContent = c.v;
+    cell.appendChild(k); cell.appendChild(v); strip.appendChild(cell);
+  });
+  // 五行小标签并入命盘条
+  const wxCell = document.createElement('div'); wxCell.className = 'cs-cell';
+  const wxk = document.createElement('span'); wxk.className = 'k'; wxk.textContent = '五行';
+  const wxTags = document.createElement('div'); wxTags.className = 'cs-tags';
+  Object.entries(chart.wuxing).forEach(([k, v]) => {
+    const t = document.createElement('span'); t.className = 't'; t.textContent = `${k}${v}`;
+    wxTags.appendChild(t);
+  });
+  wxCell.appendChild(wxk); wxCell.appendChild(wxTags); strip.appendChild(wxCell);
+  box.appendChild(strip);
+
+  // 解读输出（放大区）
+  report.forEach((secData) => {
     const sec = document.createElement('div'); sec.className = 'sec';
-    const h = document.createElement('h3'); h.textContent = s.key;
-    const p = document.createElement('p'); p.textContent = s.text;
+    const h = document.createElement('h3'); h.textContent = secData.key;
+    const p = document.createElement('p'); p.textContent = secData.text;
     sec.appendChild(h); sec.appendChild(p); box.appendChild(sec);
   });
-  // 专业明细（可折叠）
+
+  // 专业明细（可折叠，刻意做小）
   const det = document.createElement('details'); det.className = 'detail';
-  const sum = document.createElement('summary'); sum.textContent = '专业排盘明细（四柱 / 五行 / 十神 / 用神 / 大运）';
+  const sum = document.createElement('summary'); sum.textContent = '专业排盘明细（十神 / 真太阳时 / 大运）';
   det.appendChild(sum);
   const kv = document.createElement('div'); kv.className = 'kv';
-  const s = chart.sizhu;
   const addKV = (k, v) => {
     const b = document.createElement('b'); b.textContent = k;
     const span = document.createElement('span'); span.textContent = v;
     kv.appendChild(b); kv.appendChild(span);
   };
-  addKV('四柱', `${s.year} ${s.month} ${s.day} ${s.hour}`);
-  addKV('日主 / 强弱', `${chart.day_master}（${chart.strength}，评分 ${chart.strength_score}）`);
-  addKV('格局', chart.geju);
-  addKV('用神 / 喜神', `${chart.yongshen} / ${chart.xishen}`);
-  addKV('忌神', chart.jishen);
   const approxNote = chart.birth.longitude_approx ? '，经度按120°E近似' : '';
   addKV('真太阳时', `${chart.birth.true_solar_time}（经度${chart.birth.longitude}°E，校正${chart.birth.long_corr}分${approxNote}）`);
-  det.appendChild(kv);
-  // 五行
-  const wx = document.createElement('div'); wx.className = 'tags';
-  Object.entries(chart.wuxing).forEach(([k, v]) => {
-    const t = document.createElement('span'); t.className = 'tag'; t.textContent = `${k} ${v}`;
-    wx.appendChild(t);
-  });
-  const wxLabel = document.createElement('div'); wxLabel.style.cssText = 'font-size:12.5px;color:var(--text-soft);margin-top:6px'; wxLabel.textContent = '五行计数：';
-  det.appendChild(wxLabel); det.appendChild(wx);
-  // 十神
   const ss = chart.shishen;
   const ssText = `年干 ${ss.year_gan}｜月干 ${ss.month_gan}｜时干 ${ss.hour_gan}｜` +
     `年支 ${ss.year_zhi.join('/')}｜月支 ${ss.month_zhi.join('/')}｜日支 ${ss.day_zhi.join('/')}｜时支 ${ss.hour_zhi.join('/')}`;
-  const ssLabel = document.createElement('div'); ssLabel.style.cssText = 'font-size:12.5px;color:var(--text-soft);margin-top:8px'; ssLabel.textContent = '十神：' + ssText;
-  det.appendChild(ssLabel);
-  // 大运
-  const dy = document.createElement('div'); dy.style.cssText = 'margin-top:8px';
+  addKV('十神', ssText);
+  addKV('忌神', chart.jishen);
+  det.appendChild(kv);
+  // 大运（小）
+  const dy = document.createElement('div'); dy.style.cssText = 'margin-top:6px';
   chart.dayun.forEach((d) => {
     const r = document.createElement('div'); r.className = 'dayun-row';
     r.textContent = `${d.start_age}岁起 · ${d.pillar}`;
     dy.appendChild(r);
   });
-  const dyLabel = document.createElement('div'); dyLabel.style.cssText = 'font-size:12.5px;color:var(--text-soft);margin-top:8px'; dyLabel.textContent = '大运：';
+  const dyLabel = document.createElement('div'); dyLabel.style.cssText = 'font-size:11.5px;color:var(--text-soft);margin-top:6px'; dyLabel.textContent = '大运：';
   det.appendChild(dyLabel); det.appendChild(dy);
   box.appendChild(det);
+
   // 免责句
   const disc = document.createElement('div'); disc.className = 'sec';
   const dp = document.createElement('p'); dp.style.cssText = 'color:var(--text-soft);font-size:13px';

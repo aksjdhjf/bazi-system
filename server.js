@@ -6,6 +6,7 @@ const { extract, checkCrisis, CRISIS_REPLY } = require('./src/nlp');
 const { computeChart } = require('./src/bazi');
 const { buildReport } = require('./src/interpret');
 const { search, chartTerms } = require('./src/corpus');
+const Z = require('./src/zhouyi');
 
 const app = express();
 app.use(express.json());
@@ -37,11 +38,13 @@ app.post('/api/chat', (req, res) => {
     const chart = computeChart(fields);
     // 4) 解读层（滴天髓逻辑规则引擎；离线可用）
     const report = buildReport(chart);
-    // 4.5) 原书参考（基于 OCR 语料检索《滴天髓》，语料就绪后自动生效）
-    const refs = search(chartTerms(chart), 2);
+    // 4.5) 原书参考（联合检索《滴天髓》与《周易》，语料就绪后自动生效）
+    const refTerms = [...new Set([...chartTerms(chart), ...Z.zhouyiTerms(chart)])];
+    const refs = search(refTerms, 6);
     if (refs.length) {
-      const lines = refs.map((r) => `（《滴天髓》原书·第${r.page}页）${r.text}`);
-      report.push({ key: '原书参考', text: '以下为《滴天髓》相关原文片段，供参究：\n' + lines.join('\n') });
+      const lines = refs.map((r) => `（《${r.sourceLabel}》·第${r.page}页）${r.text}`);
+      const srcs = [...new Set(refs.map((r) => r.sourceLabel))].join('、');
+      report.push({ key: '原书参考', text: `以下为《${srcs}》相关原文片段，供参究：\n` + lines.join('\n') });
     }
     // 5) 合规过滤已内置于解读模板（无绝对化断言）
     // 6) LLM+RAG 增强（可选）：若配置 LLM_API_KEY，可在此用 corpus.search 检索原书章节

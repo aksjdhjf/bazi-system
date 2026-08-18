@@ -42,7 +42,7 @@ function trueSolarTime(input) {
   return { date: { y, m: mo, d: da }, hour: h, minute: mi, tstText, shifted, E: +E.toFixed(1), longCorr: +longCorr.toFixed(1) };
 }
 
-// 五行计数（getBaZiWuXing 已是「干五行+支本气五行」的字符）
+// 五行计数（表面：干五行+支本气五行。健康偏枯另有含藏干的全计，见 interpret）
 function countWuxing(baZiWuXing) {
   const cnt = { 木: 0, 火: 0, 土: 0, 金: 0, 水: 0 };
   baZiWuXing.forEach((pair) => {
@@ -53,49 +53,65 @@ function countWuxing(baZiWuXing) {
   return cnt;
 }
 
-// 强弱评分（透明启发式，标注为参考）
+// ── 旺衰强弱评分（★自定义量化指标，非传统命理条文，仅作系统内部辅助参考★）──
+// 设计遵循正统原则的相对量级：得令(月令提纲)最重 > 得地(地支根气，本气>藏干、紧贴日支>远隔) > 得势(天干帮扶，虚浮较轻)。
+// 阈值(身强>=7 / 身弱<=3)为经验校准值，非命理定规。
 function evalStrength(dayMasterGan, baZi, baZiWuXing) {
   const dm = C.elementOfGan(dayMasterGan);
   let score = 0;
-  // 月令（月支本气）
+  // 一、得令：月令（月支本气）对日主的旺相休囚死（提纲挈领，权重最高，单独计）
   const monthZhiEl = baZiWuXing[1][1];
-  if (monthZhiEl === dm) score += 4;
-  else if (C.SHENG[monthZhiEl] === dm) score += 3;
-  else if (C.SHENG[dm] === monthZhiEl) score -= 1;
-  else if (C.KE[dm] === monthZhiEl) score -= 2;
-  else if (C.KE[monthZhiEl] === dm) score -= 3;
+  if (monthZhiEl === dm) score += 4;                 // 旺（同气）
+  else if (C.SHENG[monthZhiEl] === dm) score += 3;   // 相（月令生我，印）
+  else if (C.SHENG[dm] === monthZhiEl) score -= 1;   // 休（我生月令，食伤泄）
+  else if (C.KE[dm] === monthZhiEl) score -= 2;      // 囚（我克月令，财耗）
+  else if (C.KE[monthZhiEl] === dm) score -= 3;      // 死（月令克我，官杀）
 
-  const pillars = [
-    { gan: baZi[0][0], zhi: baZi[0][1] },
-    { gan: baZi[1][0], zhi: baZi[1][1] },
-    { gan: baZi[2][0], zhi: baZi[2][1] },
-    { gan: baZi[3][0], zhi: baZi[3][1] },
+  // 二、得地：年/日/时支的根气（月令已单独计，此处跳过月支，避免重复加权）
+  //    地支重于天干；本气>中气>余气；紧贴(日支)>远隔(年支)。
+  const zhiPos = [
+    { zhi: baZi[0][1], w: 0.6, day: false },  // 年支（远隔）
+    { zhi: baZi[2][1], w: 1.0, day: true },   // 日支（紧贴日主，权重最高）
+    { zhi: baZi[3][1], w: 0.7, day: false },  // 时支（较近）
   ];
-  pillars.forEach((p, i) => {
-    const ge = C.elementOfGan(p.gan);
-    if (i !== 2) { // 日干本身是日主，不重复计
-      if (ge === dm) score += 2;
-      else if (C.SHENG[ge] === dm) score += 1; // 印
-    }
-    (C.ZHI_HIDDEN[p.zhi] || []).forEach((g, k) => {
+  zhiPos.forEach((zp) => {
+    (C.ZHI_HIDDEN[zp.zhi] || []).forEach((g, k) => {
       const we = C.elementOfGan(g);
-      const w = C.HIDDEN_WEIGHT[k] || 0.3;
-      if (we === dm) score += 1.5 * w;
-      else if (C.SHENG[we] === dm) score += 0.8 * w;
-      else if (C.KE[dm] === we) score -= 0.4 * w;
-      else if (C.SHENG[dm] === we) score -= 0.4 * w;
-      else if (C.KE[we] === dm) score -= 0.6 * w;
+      const w = (C.HIDDEN_WEIGHT[k] || 0.3) * zp.w; // 本气1/中气0.6/余气0.3 × 位置权重
+      if (we === dm) score += (zp.day ? 3.0 : 2.2) * w;   // 同我=根（日支禄最强）
+      else if (C.SHENG[we] === dm) score += 1.2 * w;       // 生我=印根
+      else if (C.KE[dm] === we) score -= 0.5 * w;          // 我克=财（耗）
+      else if (C.SHENG[dm] === we) score -= 0.5 * w;       // 我生=食伤（泄）
+      else if (C.KE[we] === dm) score -= 0.7 * w;          // 克我=官杀
     });
   });
 
+  // 三、得势：天干比劫、印星帮扶（天干虚浮无根，权重低于地支根气）
+  [baZi[0][0], baZi[1][0], baZi[3][0]].forEach((g) => { // 年/月/时干（日干本身除外）
+    const ge = C.elementOfGan(g);
+    if (ge === dm) score += 1.5;             // 比劫帮身
+    else if (C.SHENG[ge] === dm) score += 1; // 印星生身
+  });
+
   let strength, level;
-  if (score >= 7) { strength = '身强'; level = 'strong'; }
-  else if (score <= 3) { strength = '身弱'; level = 'weak'; }
+  if (score >= 6) { strength = '身强'; level = 'strong'; }
+  else if (score <= 2) { strength = '身弱'; level = 'weak'; }
   else { strength = '中和'; level = 'balanced'; }
   return { strength, level, score: +score.toFixed(1) };
 }
 
-// 用神 / 喜神 / 忌神
+// 调候用神（《滴天髓》调候法：冬寒须火、夏炎须水、湿土须火、燥土须水、秋金寒凉须火）
+function tiaoHouEl(monthZhi) {
+  if (monthZhi === '丑' || monthZhi === '辰') return '火'; // 湿土厚重，用火除湿暖局
+  if (monthZhi === '未' || monthZhi === '戌') return '水'; // 燥土焦枯，用水润土
+  const season = { 寅: '春', 卯: '春', 辰: '春', 巳: '夏', 午: '夏', 未: '夏', 申: '秋', 酉: '秋', 戌: '秋', 亥: '冬', 子: '冬', 丑: '冬' }[monthZhi];
+  if (season === '冬') return '火';
+  if (season === '夏') return '水';
+  if (season === '秋') return '火';
+  return null; // 春温润平和，调候非急
+}
+
+// 用神 / 喜神 / 忌神（扶抑取用为主；调候为急者另见 chart.tiaohou_shen，取用优先）
 function evalYong(dayMasterGan, strengthLevel) {
   const dm = C.elementOfGan(dayMasterGan);
   const bi = dm;                 // 比劫（同我）
@@ -118,24 +134,36 @@ function evalYong(dayMasterGan, strengthLevel) {
   };
 }
 
-// 格局判定（《子平真诠》格局法：以月令为尊，月支本气所藏十神定格）
-function evalGeju(dayMasterGan, shishenGan, shishenZhiAll, strengthLevel, monthZhiMainShen) {
-  const all = [...shishenGan, ...shishenZhiAll.flat()];
+// 格局判定（《子平真诠》格局法：以月令为尊、透干优先取格）
+// 月支所藏天干按 本气→中气→余气 顺序，取第一个透出于年/月/时干者定格；
+// 全不透干则取月支本气定格。
+function evalGeju(dayMasterGan, shishenGan, shishenZhiAll, monthZhi, gans) {
+  // 十神分布（供性格画像）：统计全部十神，但排除日干自身（'日主'）
+  const all = [...shishenGan.filter((_, i) => i !== 2), ...shishenZhiAll.flat()];
   const cnt = {};
-  all.forEach((s) => { cnt[s] = (cnt[s] || 0) + 1; });
-  const yue = monthZhiMainShen; // 月支本气十神
+  all.forEach((s) => { if (s && s !== '日主') cnt[s] = (cnt[s] || 0) + 1; });
+
+  // 透干判断：年/月/时干（日干本身不计入"透"）
+  const touGans = [gans[0], gans[1], gans[3]];
+  const hidden = C.ZHI_HIDDEN[monthZhi] || []; // [本气, 中气, 余气]
+  let geGan = null;
+  for (const hg of hidden) { if (touGans.includes(hg)) { geGan = hg; break; } } // 透干优先
+  const tou = geGan !== null;
+  if (!geGan) geGan = hidden[0]; // 全不透，取本气
+  const geShen = C.shiShen(dayMasterGan, geGan);
+
   let name = '普通格（日主中和，无突出十神）';
-  if (yue === '七杀') name = '七杀格（偏官格）';
-  else if (yue === '正官') name = '正官格';
-  else if (yue === '食神') name = '食神格';
-  else if (yue === '伤官') name = '伤官格';
-  else if (yue === '正印' || yue === '偏印') name = '印格（正印/偏印）';
-  else if (yue === '正财' || yue === '偏财') name = '财格';
-  else if (yue === '比肩' || yue === '劫财') name = '比劫格（建禄/月劫）';
-  return { geju: name, distribution: cnt, yueling_shen: yue };
+  if (geShen === '七杀') name = '七杀格（偏官格）';
+  else if (geShen === '正官') name = '正官格';
+  else if (geShen === '食神') name = '食神格';
+  else if (geShen === '伤官') name = '伤官格';
+  else if (geShen === '正印' || geShen === '偏印') name = '印格（正印/偏印）';
+  else if (geShen === '正财' || geShen === '偏财') name = '财格';
+  else if (geShen === '比肩' || geShen === '劫财') name = '比劫格（建禄/月劫）';
+  return { geju: name, distribution: cnt, ge_shen: geShen, ge_gan: geGan, tou };
 }
 
-// 大运
+// 大运（顺逆与起运由 lunar 依节气精确计算：阳男阴女顺排、阴男阳女逆排）
 function evalDaYun(lunar, gender) {
   const ec = lunar.getEightChar();
   const yun = ec.getYun(gender === '男' ? 1 : 0);
@@ -170,8 +198,10 @@ function computeChart(input) {
   };
   const strengthObj = evalStrength(dayMaster, baZi, baZiWuXing);
   const yong = evalYong(dayMaster, strengthObj.level);
+  const thEl = tiaoHouEl(baZi[1][1]); // 调候用神（调候为急，取用优先）
   const shishenZhiAll = [shishenZhi.year_zhi, shishenZhi.month_zhi, shishenZhi.day_zhi, shishenZhi.hour_zhi];
-  const geju = evalGeju(dayMaster, shishenGan, shishenZhiAll, strengthObj.level, shishenZhiMain[1]);
+  const gansAll = [baZi[0][0], baZi[1][0], baZi[2][0], baZi[3][0]];
+  const geju = evalGeju(dayMaster, shishenGan, shishenZhiAll, baZi[1][1], gansAll);
 
   return {
     birth: {
@@ -200,6 +230,10 @@ function computeChart(input) {
     xishen: yong.xishen,
     jishen: yong.jishen,
     geju: geju.geju,
+    ge_shen: geju.ge_shen,
+    ge_gan: geju.ge_gan,
+    ge_tou: geju.tou,
+    tiaohou_shen: thEl,
     shishen_distribution: geju.distribution,
     dayun: evalDaYun(lunar, input.gender),
   };

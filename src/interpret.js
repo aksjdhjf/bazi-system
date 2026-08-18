@@ -191,6 +191,16 @@ function tiaoHou(monthZhi) {
 // 五行 → 脏腑
 const HEALTH = { 金: '肺与呼吸道', 木: '肝胆', 水: '肾与泌尿生殖', 火: '心与血液循环', 土: '脾胃消化系统' };
 
+// 五行全计（天干 + 地支藏干全计），用于健康偏枯判断（比表面五行更贴近"气"的真实分布）
+function wuxingFull(chart) {
+  const cnt = { 木: 0, 火: 0, 土: 0, 金: 0, 水: 0 };
+  [chart.sizhu.year, chart.sizhu.month, chart.sizhu.day, chart.sizhu.hour].forEach((p) => {
+    cnt[C.elementOfGan(p[0])] += 1; // 天干
+    (C.ZHI_HIDDEN[p[1]] || []).forEach((g) => { cnt[C.elementOfGan(g)] += 1; }); // 地支藏干全计
+  });
+  return cnt;
+}
+
 // 喜用神 → 行业 / 方位 / 颜色（《穷通宝鉴》类象体系）
 const INDUSTRY = {
   木: '文教、出版、园林林业、服装纺织、家具、中医中药',
@@ -278,7 +288,16 @@ function mingjuZonglan(chart) {
   };
   const dashi = dashiMap[gs] || '宜顺势而为';
 
-  return `${dmName}（${dmShow}）生于${mz}月，${gs}也，月令${yueShen}司权，月干透${mgs}。${tiaoW}；${wsW}，${rootW}。年干${yg}为${ygs}、月干${mg}为${mgs}、时干${hg}为${hgs}，各司其位。全局${yjW}。${dashi}，中年行用神之地，枯木逢春，晚景安泰。`;
+  // 中年大运走势（约25-55岁所行大运是否贴用神），动态判断晚运，避免与盘面脱节的固定套话
+  const yongEls = chart.yongshen.split('、');
+  const midYun = (chart.dayun || []).filter((d) => d.start_age >= 25 && d.start_age <= 55);
+  const midGood = midYun.some((d) => {
+    const els = [C.elementOfGan(d.pillar[0]), C.ZHI_MAIN[d.pillar[1]]];
+    return els.some((e) => yongEls.includes(e));
+  });
+  const wanYun = midGood ? '中年行运渐入佳境，枯木逢春，晚景安泰' : '中年行运多经磨砺，须守中蓄力、待时而发，晚岁方宁';
+
+  return `${dmName}（${dmShow}）生于${mz}月，${gs}也，月令${yueShen}司权，月干透${mgs}。${tiaoW}；${wsW}，${rootW}。年干${yg}为${ygs}、月干${mg}为${mgs}、时干${hg}为${hgs}，各司其位。全局${yjW}。${dashi}，${wanYun}。`;
 }
 
 // ───────────────────────────────────────────────
@@ -334,6 +353,14 @@ function wangshuai(chart) {
     ? (yong.includes(th.needEl) ? `调候用神（${th.needEl}）与扶身用神（${chart.yongshen}）${chart.yongshen.includes(th.needEl) ? '重合，用神专一，行运改善明显' : '方向一致'}。` : `调候用神（${th.needEl}）与扶身用神（${chart.yongshen}）不尽相同，取用时以月令气候刚需为优先（调候为急，扶抑次之），二者兼顾。`)
     : '此命寒暖尚匀，调候非急，以旺衰扶抑取用为主。';
 
+  // 特殊格局提示（从格/专旺）：《滴天髓》"从得真者只论从"；日主无根无生则从、满局生扶则专旺，取用异于常法
+  let special = '';
+  if (chart.strength === '身弱' && !rt.hasRoot && !ds.hasShi) {
+    special = '【特殊格局提示】日主无根无生、孤立无援，疑似「从格」（从财/从杀/从儿/从势）——取用宜顺其旺势，不可逆扶（印比帮扶反破局），此命宜另按从格详论。\n';
+  } else if (chart.strength === '身强' && q.ke <= 1) {
+    special = '【特殊格局提示】满局生扶、克泄耗之力几无，疑似「专旺格」（如曲直、炎上之类）——取用宜顺其旺势（用食伤泄秀），忌见财官逆制，此命宜另按专旺详论。\n';
+  }
+
   return (
     `【日主本性】你的日主是「${dm}」（属${dmEl}行），${C.GAN_NATURE[dm]}，这是你先天性格的底色。\n` +
     `【得令判定】月令${chart.sizhu.month[1]}属${ling.season === '四季' ? '四季土月' : ling.season + '季'}，日主${dmEl}行在其中处于「${ling.state}」——${ling.note}。\n` +
@@ -341,6 +368,7 @@ function wangshuai(chart) {
     `【得势判定】天干帮衬：${ds.hasShi ? ds.list.join('、') + '，比劫印星生扶，得势' + (ds.list.length >= 2 ? '有力' : '尚可') : '天干无比劫印星帮身，得势微弱，多靠自身与地支根气'}。\n` +
     `【全局力量对比】生扶方（印+比劫）有：${det.shengList.join('、') || '无'}；克泄耗方（官杀+食伤+财）有：${det.keList.join('、') || '无'}。加权统计：生扶≈${q.sheng}，克泄耗≈${q.ke}（地支重于天干、本气重于藏干、紧贴重于远隔）。\n` +
     `【旺衰最终结论】综合月令+全局力量+根气，判定为「${chart.strength}」（旺衰评分约 ${chart.strength_score}，仅作参考）。${summary}\n` +
+    special +
     `【调候分析】你出生在${th.season}季（月令${chart.sizhu.month[1]}），格局偏「${th.kind}」，${th.need}。${tiaoTong}`
   );
 }
@@ -355,7 +383,9 @@ function ganHeHua(chart) {
   const season = ['辰', '戌', '丑', '未'].includes(mz) ? '四季' : D.SEASON[mz];
   const tbl = C.SEASON_WANGXIU[season];
   const result = [];
-  for (let i = 0; i < gans.length; i++) for (let j = i + 1; j < gans.length; j++) {
+  // 紧贴之合（相邻两干）方可论化气（《滴天髓》：合化须紧贴，遥隔不论化）
+  for (let i = 0; i < gans.length - 1; i++) {
+    const j = i + 1;
     const k1 = gans[i] + gans[j], k2 = gans[j] + gans[i];
     const key = he[k1] ? k1 : k2;
     if (!he[key]) continue;
@@ -370,11 +400,18 @@ function ganHeHua(chart) {
     const keEl = C.KE_INV[huaEl];
     const cond3 = !zhis.some((z) => C.ZHI_MAIN[z] === keEl);
     if (cond1 && cond2 && cond3) {
-      result.push(`天干${gans[i]}${gans[j]}五合化${huaEl}：月令化神当令、化神透干、无克，三条件齐备，论「化气」，化气后${huaEl}行力量大增，主性情专注、气机纯粹`);
+      result.push(`天干${gans[i]}${gans[j]}五合化${huaEl}：两干紧贴、月令化神当令、化神透干、无克，论「化气」，化气后${huaEl}行力量大增，主性情专注、气机纯粹`);
     } else {
       const why = !cond1 ? '化神不当令' : (!cond2 ? '化神不透干' : '有克制化神之五行');
-      result.push(`天干${gans[i]}${gans[j]}五合（化${huaEl}）：因${why}，只论「合身」不论化气——主${pos[i]}${gans[i]}与${pos[j]}${gans[j]}相互牵绊、性情圆融`);
+      result.push(`天干${gans[i]}${gans[j]}五合（化${huaEl}）：两干虽紧贴，因${why}，只论「合身」不论化气——主${pos[i]}${gans[i]}与${pos[j]}${gans[j]}相互牵绊、性情圆融`);
     }
+  }
+  // 遥隔之合（隔位两干）：合力微，只论牵绊、不论化气
+  for (let i = 0; i < gans.length; i++) for (let j = i + 2; j < gans.length; j++) {
+    const k1 = gans[i] + gans[j], k2 = gans[j] + gans[i];
+    const key = he[k1] ? k1 : k2;
+    if (!he[key]) continue;
+    result.push(`天干${gans[i]}${gans[j]}遥隔相合：两干隔位，合力微而难化，仅主${pos[i]}与${pos[j]}暗中牵绊`);
   }
   return result;
 }
@@ -403,11 +440,11 @@ function zhengHe(chart) {
 // ───────────────────────────────────────────────
 function gejuHehua(chart) {
   const gs = gejuShort(chart);
-  const yueShen = chart.shishen._zhi_main.month;
   const mz = chart.sizhu.month[1];
-  const yueMainGan = C.ZHI_HIDDEN[mz][0];
-  const gans = [chart.sizhu.year[0], chart.sizhu.month[0], chart.sizhu.day[0], chart.sizhu.hour[0]];
-  const touGan = gans.includes(yueMainGan);
+  const geShen = chart.ge_shen;      // 定格十神
+  const geGan = chart.ge_gan;        // 定格所取天干
+  const tou = chart.ge_tou;          // 定格干是否透干
+  const hiddenNames = (C.ZHI_HIDDEN[mz] || []).join('、'); // 月支所藏
 
   const coor = coordination(chart);
   const broken = coor.filter((c) => c.includes('冲') || c.includes('刑') || c.includes('害'));
@@ -422,8 +459,12 @@ function gejuHehua(chart) {
   const zhis = [chart.sizhu.year[1], chart.sizhu.month[1], chart.sizhu.day[1], chart.sizhu.hour[1]];
   const kongHit = ['年支', '月支', '日支', '时支'].filter((_, i) => kong.includes(zhis[i]));
 
+  const dingge = tou
+    ? `月令${mz}所藏天干为${hiddenNames}，其中「${geGan}」透出天干，依《子平真诠》「透干会支，以透出者定格」，取其所成十神「${geShen}」定格`
+    : `月令${mz}所藏天干为${hiddenNames}，皆不透干，取月令本气「${geGan}」（十神${geShen}）定格`;
+
   return (
-    `【所定格局】你属「${chart.geju}」。定格理由：遵循《子平真诠》格局法「以月令为尊」——月令${mz}本气为${yueMainGan}（十神${yueShen}），${touGan ? '月令本气透干' : '月令本气未透干，仍以本气'}取为格。\n` +
+    `【所定格局】你属「${chart.geju}」。定格理由：遵循《子平真诠》格局法「以月令为尊、透干优先」——${dingge}。\n` +
     `【格局成败】${gejuCheng}\n` +
     `【天干五合】${heHua.length ? heHua.join('；') + '。' : '天干无五合，人际与性情较少被合星牵绊，行事相对独立。'}\n` +
     `【争合取象】${zheng.length ? zheng.join('；') + '。' : '天干无争合，无多方牵制之象。'}\n` +
@@ -521,12 +562,12 @@ function liuQin(chart) {
   // 六亲
   const liuqin = `年柱看祖辈（${chart.sizhu.year[0]}${chart.sizhu.year[1]}）、月柱看父母（${chart.sizhu.month[0]}${chart.sizhu.month[1]}）、时柱看子女（${chart.sizhu.hour[0]}${chart.sizhu.hour[1]}）。${hasYin ? '印星在命，与长辈、学历、贵人之缘较深' : '印星不显，长辈助力有限，宜自强'}；${hasShiShang ? '食伤在命，子女缘分、才华表达有向度' : '食伤不显，子女缘分或表达欲偏内敛'}。`;
 
-  // 健康
-  const wx = chart.wuxing;
+  // 健康（以天干+地支藏干全计的五行分布判偏枯，贴近"气"的真实强弱）
+  const wx = wuxingFull(chart);
   const entries = Object.entries(wx);
   const mx = entries.filter((e) => e[1] === Math.max(...entries.map((x) => x[1]))).map((e) => e[0]);
   const mn = entries.filter((e) => e[1] === Math.min(...entries.map((x) => x[1]))).map((e) => e[0]);
-  const health = `五行中${mx.join('、')}偏旺、${mn.join('、')}偏弱。按五行对应脏腑：${mx.map((e) => HEALTH[e] + '易亢').join('、')}；${mn.map((e) => HEALTH[e] + '易弱').join('、')}。以上仅为基于五行类象的体质趋势分析，不能替代医学诊断，如有不适请及时就医。`;
+  const health = `五行中${mx.join('、')}偏旺、${mn.join('、')}偏弱（按天干与地支藏干全计）。按五行对应脏腑：${mx.map((e) => HEALTH[e] + '易亢').join('、')}；${mn.map((e) => HEALTH[e] + '易弱').join('、')}。以上仅为基于五行类象的体质趋势分析，不能替代医学诊断，如有不适请及时就医。`;
 
   return (
     `【6.1 婚恋感情】${hun}\n` +
@@ -556,9 +597,11 @@ function xiyongZhinan(chart) {
   const fuYi = chart.strength === '身弱' ? '身弱喜印比生扶（印+比劫）' : chart.strength === '身强' ? '身强喜财官食伤泄克' : '中和喜流通';
   const unified = (th.needEl && yong.includes(th.needEl)) ? '三者高度统一，用神专一，行运到该五行之地改善明显' : '调候与扶抑方向不完全一致，取用时以调候为第一优先、扶抑为辅';
 
-  const industry = yong.map((e) => INDUSTRY[e]).filter(Boolean).join('；');
-  const direction = yong.map((e) => DIRECTION[e]).filter(Boolean).join('、');
-  const color = yong.map((e) => COLOR[e]).filter(Boolean).join('、');
+  // 万物类象（行业/方位/颜色）以调候用神为第一优先，辅以扶抑用神
+  const primaryEls = chart.tiaohou_shen ? [chart.tiaohou_shen, ...yong.filter((e) => e !== chart.tiaohou_shen)] : yong;
+  const industry = primaryEls.map((e) => INDUSTRY[e]).filter(Boolean).join('；');
+  const direction = primaryEls.map((e) => DIRECTION[e]).filter(Boolean).join('、');
+  const color = primaryEls.map((e) => COLOR[e]).filter(Boolean).join('、');
   let habit;
   if (th.kind.includes('寒') || th.kind.includes('湿')) habit = '命局偏寒湿，宜多晒太阳、居住向阳、喜温热饮食，忌久居阴冷潮湿之地。';
   else if (th.kind.includes('燥') || th.kind.includes('热')) habit = '命局偏燥热，宜近水而居、多静少躁、清淡饮食，忌熬夜上火。';
@@ -566,7 +609,7 @@ function xiyongZhinan(chart) {
 
   return (
     `【喜忌判定过程】按「调候用神 > 格局用神 > 扶抑用神」的优先级：①调候用神为「${tiaoShen}」（解决季节气候偏性）；②格局用神为「${gejuYong}」（成全格局成败）；③扶抑用神为「${fuYi}」。${unified}。\n` +
-    `【喜用神】${chart.yongshen}——能平衡全局、补偏救弊的"良药"${mainYong ? `，主用神为「${mainYong}」` : ''}。\n` +
+    `【喜用神】${chart.tiaohou_shen ? `调候用神「${chart.tiaohou_shen}」（调候为急，第一优先）＋扶抑用神「${chart.yongshen}」（辅助）` : chart.yongshen}——能平衡全局、补偏救弊的"良药"${mainYong ? `，扶抑主用神为「${mainYong}」` : ''}。\n` +
     `【喜神】${chart.xishen}——辅助用神。\n` +
     `【忌神】${chart.jishen}——加剧失衡、带来压力损耗者，宜避。\n` +
     `【闲神】${xian.length ? xian.join('、') + '——力量中性，增减无明显吉凶' : '无（五行皆已分属用/喜/忌）'}。\n` +

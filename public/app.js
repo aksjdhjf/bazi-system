@@ -1,4 +1,4 @@
-// 八字命理助手 · 前端逻辑
+// 玄机阁·八字命理 — 前端逻辑
 const chatEl = document.getElementById('chat');
 const msgForm = document.getElementById('msgForm');
 const msgInput = document.getElementById('msgInput');
@@ -6,43 +6,106 @@ const formToggle = document.getElementById('formToggle');
 const formPanel = document.getElementById('formPanel');
 const themeBtn = document.getElementById('themeBtn');
 
-let known = {};
+const GAN_WX = { 甲: '木', 乙: '木', 丙: '火', 丁: '火', 戊: '土', 己: '土', 庚: '金', 辛: '金', 壬: '水', 癸: '水' };
+const ZHI_WX = { 子: '水', 丑: '土', 寅: '木', 卯: '木', 辰: '土', 巳: '火', 午: '火', 未: '土', 申: '金', 酉: '金', 戌: '土', 亥: '水' };
+
+// 术语小词典（朱砂高亮 + 悬停注解）
+const GLOSSARY = {
+  '八字': '出生年、月、日、时的天干地支，共八个字',
+  '日主': '出生那天的天干，代表命主本人',
+  '旺衰': '日主在八字里的强弱状态',
+  '身弱': '自身力量偏弱，需要生扶',
+  '身强': '自身力量偏强',
+  '中和': '强弱适中',
+  '格局': '八字的整体主旋律与"牌型"',
+  '用神': '能让八字趋于平衡的关键五行',
+  '喜神': '与用神同类的辅助力量',
+  '忌神': '会破坏平衡、宜回避的五行',
+  '七杀': '代表挑战与压力，也主魄力突破',
+  '正官': '代表规则、责任与名望',
+  '官杀': '权柄、规则与压力之星',
+  '正财': '男命妻星，也主稳定之财',
+  '偏财': '流动之财、意外之财',
+  '财星': '养命与资源之星',
+  '正印': '代表学习、庇护与贵人',
+  '偏印': '主偏门学识与思考',
+  '食神': '代表才华、表达与享受',
+  '伤官': '代表才艺、叛逆与创意',
+  '五行': '木火土金水五种基本元素',
+  '大运': '每十年左右的人生大趋势',
+  '真太阳时': '按经度校正后的真实出生时间',
+  '滴天髓': '清代命理经典',
+  '周易': '群经之首，讲阴阳卦象',
+};
+const GLOSS_RE = new RegExp('(' + Object.keys(GLOSSARY).sort((a, b) => b.length - a.length).join('|') + ')', 'g');
 
 // 主题
 const saved = localStorage.getItem('bazi-theme');
 if (saved) document.documentElement.setAttribute('data-theme', saved);
-themeBtn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
+function syncThemeBtn() {
+  const dark = document.documentElement.getAttribute('data-theme') !== 'light';
+  themeBtn.textContent = dark ? '☾ 暗' : '☀ 明';
+}
+syncThemeBtn();
 themeBtn.onclick = () => {
   const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', cur);
   localStorage.setItem('bazi-theme', cur);
-  themeBtn.textContent = cur === 'dark' ? '☀️' : '🌙';
+  syncThemeBtn();
 };
 
+// 八卦水印
+(function fillBagua() {
+  const g = document.getElementById('baguaTrigrams');
+  const glyphs = ['☰', '☱', '☲', '☳', '☴', '☵', '☶', '☷'];
+  glyphs.forEach((gl, i) => {
+    const a = (i * 45 - 90) * Math.PI / 180;
+    const x = 100 + 84 * Math.cos(a), y = 100 + 84 * Math.sin(a);
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', x); t.setAttribute('y', y + 7); t.textContent = gl;
+    g.appendChild(t);
+  });
+})();
+
+let known = {};
 formToggle.onclick = () => { formPanel.hidden = !formPanel.hidden; };
 
 function addMsg(role, node) {
-  const wrap = document.createElement('div');
-  wrap.className = `msg ${role}`;
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  bubble.appendChild(node);
-  wrap.appendChild(bubble);
-  chatEl.appendChild(wrap);
-  chatEl.scrollTop = chatEl.scrollHeight;
+  const wrap = document.createElement('div'); wrap.className = `msg ${role}`;
+  const bubble = document.createElement('div'); bubble.className = 'bubble';
+  bubble.appendChild(node); wrap.appendChild(bubble);
+  chatEl.appendChild(wrap); chatEl.scrollTop = chatEl.scrollHeight;
   return bubble;
 }
-function addUserText(text) {
-  const p = document.createElement('div'); p.textContent = text;
-  addMsg('user', p);
+function addUserText(text) { const p = document.createElement('div'); p.textContent = text; addMsg('user', p); }
+function addBotText(text) { const p = document.createElement('div'); p.textContent = text; return addMsg('bot', p); }
+function typing() { const p = document.createElement('div'); p.className = 'typing'; return addMsg('bot', p); }
+
+// 术语高亮（安全：逐段建节点，不拼 innerHTML）
+function withTerms(text) {
+  const frag = document.createDocumentFragment();
+  text.split(GLOSS_RE).forEach((part) => {
+    if (GLOSSARY[part]) {
+      const sp = document.createElement('span'); sp.className = 'term';
+      sp.textContent = part; sp.title = GLOSSARY[part];
+      frag.appendChild(sp);
+    } else {
+      frag.appendChild(document.createTextNode(part));
+    }
+  });
+  return frag;
 }
-function addBotText(text) {
-  const p = document.createElement('div'); p.textContent = text;
-  return addMsg('bot', p);
-}
-function typing() {
-  const p = document.createElement('div'); p.className = 'typing';
-  return addMsg('bot', p);
+
+function baguaSvg() {
+  let g = '';
+  ['☰', '☱', '☲', '☳', '☴', '☵', '☶', '☷'].forEach((gl, i) => {
+    const a = (i * 45 - 90) * Math.PI / 180;
+    const x = 50 + 40 * Math.cos(a), y = 50 + 40 * Math.sin(a);
+    g += `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" font-size="13" text-anchor="middle" fill="var(--gold)">${gl}</text>`;
+  });
+  return `<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="47" fill="none" stroke="var(--gold)" stroke-width="2"/>` +
+    `<circle cx="50" cy="50" r="30" fill="none" stroke="var(--gold)" stroke-width="1"/>${g}` +
+    `<text x="50" y="58" font-size="26" text-anchor="middle" fill="var(--text)">☯</text></svg>`;
 }
 
 // 渲染报告
@@ -50,49 +113,81 @@ function renderReport(chart, report, disclaimer) {
   const box = document.createElement('div'); box.className = 'report';
   const s = chart.sizhu;
 
-  // 紧凑命盘条（始终可见，但细小——满足"表格变小"）
+  // 命盘小条：四柱 + 五行色点 + 十神
   const strip = document.createElement('div'); strip.className = 'chart-strip';
-  const csCells = [
-    { k: '四柱', v: `${s.year} ${s.month} ${s.day} ${s.hour}`, pillars: true },
-    { k: '日主', v: `${chart.day_master}（${chart.strength}）` },
-    { k: '格局', v: chart.geju },
-    { k: '用神', v: chart.yongshen },
+  const pillars = [
+    { lab: '年柱', gz: s.year, ss: chart.shishen.year_gan },
+    { lab: '月柱', gz: s.month, ss: chart.shishen.month_gan },
+    { lab: '日柱', gz: s.day, ss: '日主' },
+    { lab: '时柱', gz: s.hour, ss: chart.shishen.hour_gan },
   ];
-  csCells.forEach((c) => {
-    const cell = document.createElement('div'); cell.className = 'cs-cell' + (c.pillars ? ' pillars' : '');
-    const k = document.createElement('span'); k.className = 'k'; k.textContent = c.k;
-    const v = document.createElement('span'); v.className = 'v'; v.textContent = c.v;
-    cell.appendChild(k); cell.appendChild(v); strip.appendChild(cell);
+  pillars.forEach((p) => {
+    const cell = document.createElement('div'); cell.className = 'pillar';
+    const lab = document.createElement('div'); lab.className = 'lab'; lab.textContent = p.lab;
+    const gz = document.createElement('div'); gz.className = 'gz'; gz.textContent = p.gz;
+    const ss = document.createElement('div'); ss.className = 'ss'; ss.textContent = p.ss;
+    const dots = document.createElement('div'); dots.className = 'wx-dots';
+    [GAN_WX[p.gz[0]], ZHI_WX[p.gz[1]]].forEach((el) => {
+      if (!el) return;
+      const d = document.createElement('span'); d.className = 'dot';
+      d.style.background = `var(--wx-${el})`; d.title = el + '行'; dots.appendChild(d);
+    });
+    cell.append(lab, gz, ss, dots); strip.appendChild(cell);
   });
-  // 五行小标签并入命盘条
-  const wxCell = document.createElement('div'); wxCell.className = 'cs-cell';
-  const wxk = document.createElement('span'); wxk.className = 'k'; wxk.textContent = '五行';
-  const wxTags = document.createElement('div'); wxTags.className = 'cs-tags';
-  Object.entries(chart.wuxing).forEach(([k, v]) => {
-    const t = document.createElement('span'); t.className = 't'; t.textContent = `${k}${v}`;
-    wxTags.appendChild(t);
-  });
-  wxCell.appendChild(wxk); wxCell.appendChild(wxTags); strip.appendChild(wxCell);
+  const meta = document.createElement('div'); meta.className = 'strip-meta';
+  [['日主', `${chart.day_master}（${chart.strength}）`], ['格局', chart.geju], ['用神', chart.yongshen]]
+    .forEach(([k, v]) => {
+      const c = document.createElement('div'); c.className = 'meta-chip';
+      c.innerHTML = `${k}：<b></b>`;
+      c.querySelector('b').textContent = v;
+      meta.appendChild(c);
+    });
+  strip.appendChild(meta);
   box.appendChild(strip);
 
-  // 解读输出（放大区）
-  report.forEach((secData) => {
-    const sec = document.createElement('div'); sec.className = 'sec';
-    const h = document.createElement('h3'); h.textContent = secData.key;
-    const p = document.createElement('p'); p.textContent = secData.text;
-    sec.appendChild(h); sec.appendChild(p); box.appendChild(sec);
+  // 解读输出
+  report.forEach((secData, idx) => {
+    const sec = document.createElement('div');
+    sec.className = 'sec' + (idx === 0 ? ' first' : '');
+    if (secData.key === '周易参证') {
+      sec.classList.add('zhouyi');
+      const svg = document.createElement('div'); svg.innerHTML = baguaSvg();
+      const txt = document.createElement('div'); txt.className = 'z-txt';
+      const h = document.createElement('h3'); h.textContent = secData.key;
+      const p = document.createElement('p'); p.appendChild(withTerms(secData.text));
+      txt.append(h, p); sec.append(svg, txt);
+    } else if (secData.key === '原书参考') {
+      const h = document.createElement('h3'); h.textContent = secData.key;
+      sec.appendChild(h);
+      const lines = secData.text.split('\n');
+      if (lines[0]) { const n = document.createElement('p'); n.className = 'ref-note'; n.textContent = lines[0]; sec.appendChild(n); }
+      const refs = document.createElement('div'); refs.className = 'refs';
+      lines.slice(1).forEach((ln) => {
+        const m = ln.match(/（《([^》]+)》·第(\d+)页）(.*)/);
+        const card = document.createElement('div'); card.className = 'ref';
+        if (m) {
+          if (m[1].includes('滴天髓')) card.classList.add('dt');
+          const src = document.createElement('div'); src.className = 'src'; src.textContent = `《${m[1]}》·第${m[2]}页`;
+          const body = document.createElement('div'); body.textContent = m[3];
+          card.append(src, body);
+        } else { card.textContent = ln; }
+        refs.appendChild(card);
+      });
+      sec.appendChild(refs);
+    } else {
+      const h = document.createElement('h3'); h.textContent = secData.key;
+      const p = document.createElement('p'); p.appendChild(withTerms(secData.text));
+      sec.append(h, p);
+    }
+    box.appendChild(sec);
   });
 
-  // 专业明细（可折叠，刻意做小）
+  // 明细折叠（做小）
   const det = document.createElement('details'); det.className = 'detail';
   const sum = document.createElement('summary'); sum.textContent = '专业排盘明细（十神 / 真太阳时 / 大运）';
   det.appendChild(sum);
   const kv = document.createElement('div'); kv.className = 'kv';
-  const addKV = (k, v) => {
-    const b = document.createElement('b'); b.textContent = k;
-    const span = document.createElement('span'); span.textContent = v;
-    kv.appendChild(b); kv.appendChild(span);
-  };
+  const addKV = (k, v) => { const b = document.createElement('b'); b.textContent = k; const span = document.createElement('span'); span.textContent = v; kv.append(b, span); };
   const approxNote = chart.birth.longitude_approx ? '，经度按120°E近似' : '';
   addKV('真太阳时', `${chart.birth.true_solar_time}（经度${chart.birth.longitude}°E，校正${chart.birth.long_corr}分${approxNote}）`);
   const ss = chart.shishen;
@@ -101,21 +196,16 @@ function renderReport(chart, report, disclaimer) {
   addKV('十神', ssText);
   addKV('忌神', chart.jishen);
   det.appendChild(kv);
-  // 大运（小）
+  const wxWrap = document.createElement('div'); wxWrap.style.cssText = 'margin-top:6px';
+  Object.entries(chart.wuxing).forEach(([k, v]) => { const t = document.createElement('span'); t.className = 'tag'; t.textContent = `${k} ${v}`; wxWrap.appendChild(t); });
+  det.appendChild(wxWrap);
   const dy = document.createElement('div'); dy.style.cssText = 'margin-top:6px';
-  chart.dayun.forEach((d) => {
-    const r = document.createElement('div'); r.className = 'dayun-row';
-    r.textContent = `${d.start_age}岁起 · ${d.pillar}`;
-    dy.appendChild(r);
-  });
+  chart.dayun.forEach((d) => { const r = document.createElement('div'); r.className = 'dayun-row'; r.textContent = `${d.start_age}岁起 · ${d.pillar}`; dy.appendChild(r); });
   const dyLabel = document.createElement('div'); dyLabel.style.cssText = 'font-size:11.5px;color:var(--text-soft);margin-top:6px'; dyLabel.textContent = '大运：';
-  det.appendChild(dyLabel); det.appendChild(dy);
-  box.appendChild(det);
+  det.append(dyLabel, dy); box.appendChild(det);
 
-  // 免责句
   const disc = document.createElement('div'); disc.className = 'sec';
-  const dp = document.createElement('p'); dp.style.cssText = 'color:var(--text-soft);font-size:13px';
-  dp.textContent = disclaimer;
+  const dp = document.createElement('p'); dp.style.cssText = 'color:var(--text-soft);font-size:13px'; dp.textContent = disclaimer;
   disc.appendChild(dp); box.appendChild(disc);
   return addMsg('bot', box);
 }
@@ -131,35 +221,21 @@ async function send(text) {
     const data = await resp.json();
     t.remove();
     if (data.status === 'crisis') { addBotText(data.reply); return; }
-    if (data.status === 'ask') {
-      known = data.known || {};
-      addBotText(data.question);
-      return;
-    }
-    if (data.status === 'done') {
-      known = {}; // 一轮完成，清空以便下一位
-      renderReport(data.chart, data.report, data.disclaimer);
-      return;
-    }
+    if (data.status === 'ask') { known = data.known || {}; addBotText(data.question); return; }
+    if (data.status === 'done') { known = {}; renderReport(data.chart, data.report, data.disclaimer); return; }
     addBotText('出错：' + (data.message || '未知错误'));
   } catch (e) {
     t.remove();
-    if (location.protocol === 'file:') {
-      addBotText('⚠️ 检测到你是用「直接打开文件」的方式访问的，这样脚本和接口无法加载。\n请先启动服务，然后改用浏览器访问：http://localhost:3000');
-    } else {
-      addBotText('网络异常，请确认服务已启动（start.bat），稍后再试。');
-    }
+    if (location.protocol === 'file:') addBotText('⚠️ 检测到你是用「直接打开文件」访问的，脚本与接口无法加载。请改用 http://localhost:3000 访问。');
+    else addBotText('网络异常，请确认服务已启动（start.bat），稍后再试。');
   }
 }
 
 msgForm.onsubmit = (e) => {
   e.preventDefault();
-  const v = msgInput.value.trim();
-  if (!v) return;
-  msgInput.value = '';
-  send(v);
+  const v = msgInput.value.trim(); if (!v) return;
+  msgInput.value = ''; send(v);
 };
-
 formPanel.onsubmit = (e) => {
   e.preventDefault();
   const d = document.getElementById('fDate').value;
@@ -175,11 +251,8 @@ formPanel.onsubmit = (e) => {
   known = { ...known, ...f };
   const summary = `${y}年${m}月${day}日${tm ? ' ' + tm : ''}，${g || ''}，${c || ''}`;
   send('');
-  // 用更自然的方式展示提交：把 summary 作为用户气泡已被 send 内 addUserText('（已提交详细表单）') 覆盖
-  // 修正：send 内已加用户气泡，这里补充细节
   const last = chatEl.querySelector('.msg.user:last-child .bubble');
   if (last) last.textContent = summary;
 };
 
-// 开场白
-addBotText('你好，我是八字命理助手 ☯ 告诉我你的公历出生年月日、时辰、性别和出生城市，我为你排盘解读～\n你也可以点下方「详细填写」逐项输入。');
+addBotText('你好，我是玄机阁八字批命 ☯ 告诉我你的公历出生年月日、时辰、性别和出生城市，我为你排盘，并以半文半白、周易合参的方式细细讲来。\n也可点下方「详细填写」逐项输入。');

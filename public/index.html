@@ -1,25 +1,33 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>八字命理助手 ✨</title>
+  <title>玄机阁 · 八字命理</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="app">
-    <header class="topbar">
+    <nav class="nav">
       <div class="brand">
-        <span class="logo">☯</span>
-        <div>
-          <h1>八字命理助手</h1>
-          <p class="tagline">填出生信息，看看你的命局趋势</p>
+        <span class="taiji"></span>
+        <div class="brand-txt">
+          <h1>玄机阁<span class="gold">·</span>八字</h1>
+          <p class="tagline">排盘论命 · 滴天髓与周易双典合参</p>
         </div>
       </div>
-      <div class="actions">
-        <button id="themeBtn" class="icon-btn" title="切换主题">🌙</button>
-      </div>
-    </header>
+      <button id="themeBtn" class="theme-toggle" title="切换明暗">☾ 暗</button>
+    </nav>
+
+    <section class="hero">
+      <svg class="bagua" viewBox="0 0 200 200" aria-hidden="true">
+        <circle cx="100" cy="100" r="98" fill="none" stroke="currentColor" stroke-width="1"/>
+        <circle cx="100" cy="100" r="70" fill="none" stroke="currentColor" stroke-width="1"/>
+        <g id="baguaTrigrams" fill="currentColor" font-size="22" text-anchor="middle" font-family="serif"></g>
+      </svg>
+      <h2>八字命理<span class="gold">·</span>周易参证</h2>
+      <p>填出生信息，即得半文半白之命局解读——通俗可懂，深奥有据</p>
+    </section>
 
     <main id="chat" class="chat"></main>
 
@@ -37,16 +45,16 @@
           <label>出生城市/地点<input type="text" id="fCity" placeholder="如 杭州 / 绵阳 / 县名均可" /></label>
         </div>
         <div class="row">
-          <label>出生经度（选填）<input type="number" id="fLng" step="0.01" min="-180" max="180" placeholder="留空自动估算，如 120.15" /></label>
-          <span class="hint">不知道经度？填城市即可自动匹配；乡镇会按东经120°近似</span>
+          <label class="full">出生经度（选填）<input type="number" id="fLng" step="0.01" min="-180" max="180" placeholder="留空自动估算，如 120.15" /></label>
+          <span class="hint">不知经度？填城市即可自动匹配；乡镇按东经120°近似</span>
         </div>
-        <button type="submit" class="primary-btn">提交信息排盘</button>
+        <button type="submit" class="gold-btn">起 盘 批 命</button>
       </form>
       <form id="msgForm" class="msg-form">
         <input id="msgInput" type="text" placeholder="一句话也行：1990年5月20日下午2点半，男，北京" autocomplete="off" />
-        <button type="submit" class="send-btn">发送</button>
+        <button type="submit" class="send-btn">起盘</button>
       </form>
-      <p class="disclaimer">⚠️ 本工具仅供娱乐与文化研究，结果不构成任何医疗、法律、投资等建议。</p>
+      <p class="disclaimer">⚠️ 本工具仅供娱乐与文化研究，不构成任何医疗、法律、投资等建议。</p>
     </section>
   </div>
   <script src="app.js"></script>

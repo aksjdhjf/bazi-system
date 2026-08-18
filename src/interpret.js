@@ -158,8 +158,77 @@ function advice(chart) {
   return base + tips.slice(0, 3).join('；') + '。';
 }
 
+// 白话详解：用最通俗的大白话，把整套命局逐条拆开讲清楚，作为报告第一栏
+function baihua(chart) {
+  const s = chart.sizhu;
+  const dm = chart.day_master;
+  const dmEl = C.elementOfGan(dm);
+  const tg = D.TIANGAN[dm];
+  const sd = strengthDetail(chart);
+  const wx = chart.wuxing;
+  const wxDesc = Object.entries(wx).map(([k, v]) => `${k}行${v}个`).join('、');
+  const ss = chart.shishen_distribution || {};
+  const topShen = Object.entries(ss)
+    .filter(([k]) => k !== '比肩' && k !== '劫财')
+    .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k);
+
+  // 日主五行意象（口语化）
+  const elImg = {
+    木: '它好比春天破土的小草、攀附的藤蔓——温柔、坚韧，生命力强，但也需要依靠和滋养才能长好',
+    火: '它好比一簇跳动的火苗——热情外露、行动力强，招人注意，但也要有柴薪添着才能烧得久',
+    土: '它好比厚重的大地——稳重、踏实、包容，是承载万物的根基，不张扬却最可靠',
+    金: '它好比精炼过的金属——刚毅、果断、讲原则，棱角分明，认准的事很难被说服',
+    水: '它好比流动的江河——聪明、灵活、适应力强，遇阻就绕、遇壑便盈，最善变通',
+  };
+
+  // 旺衰大白话
+  let strengthPlain;
+  if (chart.strength === '身弱') {
+    strengthPlain = '通俗点说，你天生"本钱"稍欠，做事更容易累、更容易被外界影响，需要有人帮、有环境扶，才能把力气使出来。';
+  } else if (chart.strength === '身强') {
+    strengthPlain = '通俗点说，你天生底气足、有主见、扛得住事；但有时正因为太刚硬、太能扛，反而容易在人际关系或决策上吃亏，需要适当"泄一泄、松一松"。';
+  } else {
+    strengthPlain = '通俗点说，你不强也不弱，刚柔比较均衡，是相对好调理的命局，顺势而行即可。';
+  }
+
+  // 格局大白话
+  let gejuPlain;
+  if (chart.geju.includes('七杀')) gejuPlain = '七杀代表挑战、压力和魄力——你天生带一股不服输的劲，敢冲敢闯，但压力也常如影随形，关键在把压力化作动力。';
+  else if (chart.geju.includes('正官')) gejuPlain = '正官代表规则、责任与名望——你做事讲规矩、有担当，更适合在框架内稳步建功。';
+  else if (chart.geju.includes('食神') || chart.geju.includes('伤官')) gejuPlain = '食伤代表才华、表达与创意——你脑子活、点子多，适合靠才艺或想法吃饭。';
+  else if (chart.geju.includes('财')) gejuPlain = '财星代表资源、财富与务实——你对钱和物质有较好的嗅觉，善于把事情落到实处。';
+  else if (chart.geju.includes('印')) gejuPlain = '印星代表学习、庇护与贵人——你容易得到长辈、知识或平台的托举，适合走积累与沉淀的路。';
+  else gejuPlain = '你的格局比较中和，多种力量交织，没有特别突出的单一主线。';
+
+  // 用神大白话
+  let yongPlain;
+  if (chart.strength === '身弱') yongPlain = `因为你身弱，最喜"生你、帮你"的力量——比如你的用神「${chart.yongshen}」能补强你，喜神「${chart.xishen}」也来帮忙；最要避开的是忌神「${chart.jishen}」，它会再消耗你。`;
+  else if (chart.strength === '身强') yongPlain = `因为你身强，最喜"泄你、克你"的力量来平衡——你的用神「${chart.yongshen}」就是干这事的，喜神「${chart.xishen}」相辅；忌神「${chart.jishen}」再来添力，反而会过刚易折。`;
+  else yongPlain = `你中和，用神以"调候与流通"为先，核心是用神「${chart.yongshen}」、喜神「${chart.xishen}」，忌神「${chart.jishen}」宜避。`;
+
+  // 五行偏枯白话
+  const entries = Object.entries(wx);
+  const max = Math.max(...entries.map((e) => e[1]));
+  const min = Math.min(...entries.map((e) => e[1]));
+  const mx = entries.filter((e) => e[1] === max).map((e) => e[0]);
+  const mn = entries.filter((e) => e[1] === min).map((e) => e[0]);
+  const wxPlain = `其中${mx.join('、')}偏旺、${mn.join('、')}偏弱——打个比方，就像一道菜里${mx.join('、')}味重了些、${mn.join('、')}味淡了些，整体再调和一下口感就更好。`;
+
+  let t = '';
+  t += `【先认识你的"八字"】所谓八字，说白了就是你出生那一刻的"时间密码"：把年、月、日、时各换算成一组天干地支，凑成八个字。你的八个字依次是——年柱「${s.year}」、月柱「${s.month}」、日柱「${s.day}」、时柱「${s.hour}」。\n`;
+  t += `【哪个字代表"你"】这八个字里，最关键的是"日主"，也就是你出生那天的天干（${dm}），它代表的是"你这个人"本身。你的日主属${tg.name}（${dmEl}行），${elImg[dmEl] || '它是你性格与能量的底色'}。\n`;
+  t += `【你是强是弱（旺衰）】八字最讲究"日主"是强是弱。${strengthPlain}你是${chart.strength}（评语：${sd.verdict.replace(/。.*$/, '')}；旺衰评分约 ${sd.score}，仅作参考）。你出生在${sd.monthSeason}月，${D.SEASON_NOTE[sd.monthSeason]}\n`;
+  t += `【你的"人生牌型"（格局）】格局相当于你这盘八字的主旋律。你属于「${chart.geju}」——${gejuPlain}\n`;
+  t += `【最该补什么（用神）】这是八字里最实用的一件事："用神"就是能让你的命局变平衡的"良药"。${yongPlain}往后选行业、交朋友、挑时机，尽量往用神的方向靠，就更容易顺。\n`;
+  t += `【五行分布一览】你八字里的五行数量是：${wxDesc}。${wxPlain}\n`;
+  if (topShen.length) t += `【性格里最明显的几股力量】按十神看，你命中最突出的三样是：${topShen.join('、')}。它们叠加在一起，构成了你对外最常被感知到的气质。\n`;
+  t += `（下面几栏会用更接近典籍的方式，从命理、周易两面再做参证，你可以对照着看。）`;
+  return t;
+}
+
 function buildReport(chart) {
   const sections = [
+    { key: '白话详解', text: baihua(chart) },
     { key: '命局总览', text: overview(chart) },
     { key: '日主气象', text: personality(chart) },
     { key: '用神与忌神', text: yongShen(chart) },

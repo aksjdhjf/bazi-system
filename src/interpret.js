@@ -1,5 +1,5 @@
-// 解读层（滴天髓 + 周易 双典参证）：读取排盘 JSON，按命理逻辑链输出报告
-// 文风：半文半白——存命理术语之髓，加以白话串讲，令深奥者可解。
+// 解读层（滴天髓 + 周易 双典参证）：读取排盘 JSON，按「十步标准拆解」输出报告
+// 第一栏「白话详解」= 严格按十大模块、详细通俗逐步拆解；第二栏「周易参证」为《易》理印证。
 const C = require('./constants');
 const D = require('./ditiansui');
 const Z = require('./zhouyi');
@@ -11,88 +11,288 @@ function pillarElements(pillar) {
 }
 function containsSet(arr, set) { return arr.some((e) => set.includes(e)); }
 
-// 旺衰判定明细（结合评分，透明说明得令/得地/得生助）
-function strengthDetail(chart) {
-  const dm = C.elementOfGan(chart.day_master);
-  const monthZhi = chart.sizhu.month[1];
-  const monthSeason = D.SEASON[monthZhi];
-  const ling = C.ZHI_MAIN[monthZhi] === dm ? '得月令（提纲当旺）'
-    : C.SHENG[monthZhi] ? (C.elementOfGan(C.SHENG_INV[dm]) === C.ZHI_MAIN[monthZhi] ? '得月令生扶' : '')
-    : '';
-  let verdict;
-  if (chart.strength === '身弱') verdict = '偏弱，譬若春苗初发，犹待雨露以生扶';
-  else if (chart.strength === '身强') verdict = '偏强，譬若大树已成，尚需疏剪以通风';
-  else verdict = '中和，气血匀停，刚柔各得其所';
-  return { dm, monthSeason, ling, verdict, score: chart.strength_score };
+// 取出某五行对应的任意一个天干（用于"根"的判断）
+function ganOfElement(el) { return C.GAN[C.GAN_WX.indexOf(el)]; }
+
+// 四柱藏干展开（天干 + 地支本气 + 藏干）
+function pillarHidden(chart) {
+  const names = ['年柱', '月柱', '日柱', '时柱'];
+  const pillars = [chart.sizhu.year, chart.sizhu.month, chart.sizhu.day, chart.sizhu.hour];
+  return pillars.map((p, i) => {
+    const zhi = p[1];
+    const hidden = (C.ZHI_HIDDEN[zhi] || []).map((g) => `${g}(${C.elementOfGan(g)})`).join('、');
+    return `${names[i]} ${p[0]}(${C.elementOfGan(p[0])})${zhi}(${C.ZHI_MAIN[zhi]})，藏干 ${hidden || '无'}`;
+  }).join('；\n');
 }
 
-// 干支配合检测（三合 / 六合 / 刑冲）
+// 月令旺相休囚死判定（方法1：月令第一优先级）
+function lingState(dmEl, monthZhi) {
+  const season = D.SEASON[monthZhi];
+  const tbl = C.SEASON_WANGXIU[season];
+  const state = tbl[dmEl];
+  const note = {
+    旺: '得月令，先天底气最足（得令）',
+    相: '得月令生扶，先天得势（相）',
+    休: '在月令处于休态，先天偏弱',
+    囚: '在月令处于囚态，先天受制',
+    死: '在月令处于死态，先天最弱',
+  };
+  return { season, state, note: note[state] };
+}
+
+// 全局生扶 vs 克泄耗 量化统计（方法2）
+function quantify(chart) {
+  const dm = C.elementOfGan(chart.day_master);
+  let sheng = 0, ke = 0;
+  const classify = (we) => (we === dm || C.SHENG[we] === dm) ? 'sheng' : 'ke';
+  const pillars = [chart.sizhu.year, chart.sizhu.month, chart.sizhu.day, chart.sizhu.hour];
+  pillars.forEach((p, idx) => {
+    if (idx !== 2) { // 日干自身不计为外来生扶
+      if (classify(C.elementOfGan(p[0])) === 'sheng') sheng += 1; else ke += 1;
+    }
+    const hidden = C.ZHI_HIDDEN[p[1]] || [];
+    hidden.forEach((g, k) => {
+      const we = C.elementOfGan(g);
+      const w = C.HIDDEN_WEIGHT[k] || 0.3;
+      if (idx === 2 && we === dm) return; // 日支之根不算外来生扶
+      if (classify(we) === 'sheng') sheng += w; else ke += w;
+    });
+  });
+  return { sheng: +sheng.toFixed(1), ke: +ke.toFixed(1) };
+}
+
+// 根气判定（方法3）
+function rootInfo(chart) {
+  const dm = C.elementOfGan(chart.day_master);
+  const zhis = [chart.sizhu.year[1], chart.sizhu.month[1], chart.sizhu.day[1], chart.sizhu.hour[1]];
+  let strongRoot = 0, anyRoot = 0;
+  zhis.forEach((z, idx) => {
+    if (idx === 2) { // 日支为坐根
+      if (C.ZHI_MAIN[z] === dm) strongRoot++;
+      else if ((C.ZHI_HIDDEN[z] || []).some((g) => C.elementOfGan(g) === dm)) anyRoot++;
+      return;
+    }
+    if (C.ZHI_MAIN[z] === dm) { strongRoot++; anyRoot++; }
+    else if ((C.ZHI_HIDDEN[z] || []).some((g) => C.elementOfGan(g) === dm)) anyRoot++;
+  });
+  return { strongRoot, anyRoot, hasRoot: anyRoot > 0 };
+}
+
+// 干支作用关系（天干五合/相冲 + 地支三合/三会/六合/六冲/相刑/相害）
 function coordination(chart) {
   const zhis = [chart.sizhu.year[1], chart.sizhu.month[1], chart.sizhu.day[1], chart.sizhu.hour[1]];
+  const gans = [chart.sizhu.year[0], chart.sizhu.month[0], chart.sizhu.day[0], chart.sizhu.hour[0]];
   const notes = [];
-  const tri = zhis.join('');
-  Object.keys(D.SANHE).forEach((k) => {
-    if (k.split('').every((c) => zhis.includes(c))) notes.push(`地支会${D.SANHE[k]}局（${k}三合），气势凝聚`);
-  });
+  Object.keys(D.SANHE).forEach((k) => { if (k.split('').every((c) => zhis.includes(c))) notes.push(`地支${k}三合${D.SANHE[k]}局，气势凝聚`); });
+  Object.keys(C.SANHUI).forEach((k) => { if (k.split('').every((c) => zhis.includes(c))) notes.push(`地支${k}三会${C.SANHUI[k]}方，一行能量汇聚放大`); });
   for (let i = 0; i < zhis.length; i++) for (let j = i + 1; j < zhis.length; j++) {
     const pair = [zhis[i], zhis[j]].sort().join('');
     const rev = [zhis[j], zhis[i]].sort().join('');
-    if (D.LIUHE[pair] || D.LIUHE[rev]) notes.push(`地支${zhis[i]}${zhis[j]}相合（${D.LIUHE[pair] || D.LIUHE[rev]}），主情投意合，亦或牵绊`);
+    if (D.LIUHE[pair] || D.LIUHE[rev]) notes.push(`地支${zhis[i]}${zhis[j]}六合（合${D.LIUHE[pair] || D.LIUHE[rev]}），主牵绊结缘`);
+    if (D.LIUCHONG.includes(pair)) notes.push(`地支${zhis[i]}${zhis[j]}六冲，主变动起伏、根基动摇`);
+    if (C.XING_PAIRS.includes(pair)) notes.push(`地支${zhis[i]}${zhis[j]}相刑，主是非内耗、暗伤`);
+    if (C.HAI_PAIRS.includes(pair)) notes.push(`地支${zhis[i]}${zhis[j]}相害，主小人暗中损耗`);
   }
-  for (let i = 0; i < zhis.length; i++) for (let j = i + 1; j < zhis.length; j++) {
-    const pair = [zhis[i], zhis[j]].sort().join('');
-    if (D.LIUCHONG.includes(pair)) notes.push(`地支${zhis[i]}${zhis[j]}相冲，主变动起伏，或根基动摇`);
-  }
-  const gans = [chart.sizhu.year[0], chart.sizhu.month[0], chart.sizhu.day[0], chart.sizhu.hour[0]];
+  C.XING_SELF.forEach((z) => { if (zhis.filter((x) => x === z).length > 1) notes.push(`地支${z}自刑，主内心纠结`); });
   const he = { '甲己': '土', '乙庚': '金', '丙辛': '水', '丁壬': '木', '戊癸': '火' };
   for (let i = 0; i < gans.length; i++) for (let j = i + 1; j < gans.length; j++) {
     const key = [gans[i], gans[j]].sort().join('');
-    if (he[key]) notes.push(`天干${gans[i]}${gans[j]}相合（化${he[key]}），主性情圆融，亦或牵缠`);
+    if (he[key]) notes.push(`天干${gans[i]}${gans[j]}五合（化${he[key]}），主牵缠合作、性情圆融`);
+    if (C.GAN_CHONG.includes(key)) notes.push(`天干${gans[i]}${gans[j]}相冲，主思想矛盾、人际对立`);
   }
   return notes;
 }
 
-function overview(chart) {
+// 十神 → 人事范畴
+const SHEN_DOMAIN = {
+  正官: '事业、规则、名声、职场压力、管制；女命又看配偶',
+  七杀: '魄力、挑战、压力；女命又看配偶（偏夫）',
+  正财: '收入、资产、物质；男命又看配偶',
+  偏财: '流动之财、人缘机变；男命又看配偶（偏妻）',
+  正印: '长辈、学历、贵人、房产、内心安全感',
+  偏印: '特殊才华、冷门学问、偏门贵人',
+  食神: '才华、表达、口福、创造力',
+  伤官: '才艺外露、不拘礼法、欲望想法',
+  比肩: '朋友、同辈、竞争对手、手足',
+  劫财: '仗义行动、同辈分财、合作竞争',
+};
+function shenCategory(s) {
+  if (s === '正官' || s === '七杀') return '官杀';
+  if (s === '正财' || s === '偏财') return '财星';
+  if (s === '正印' || s === '偏印') return '印星';
+  if (s === '食神' || s === '伤官') return '食伤';
+  return '比劫';
+}
+
+// 调候分析
+function tiaoHou(monthZhi) {
+  const season = D.SEASON[monthZhi];
+  let kind, needEl, need;
+  if (monthZhi === '丑' || monthZhi === '辰') { kind = '湿土厚重'; needEl = '火'; need = '用火来制土除湿、暖局'; }
+  else if (monthZhi === '未' || monthZhi === '戌') { kind = '燥土焦枯'; needEl = '水'; need = '用水来润燥、润土生金'; }
+  else if (season === '冬') { kind = '寒水湿冷'; needEl = '火'; need = '用火暖局'; }
+  else if (season === '夏') { kind = '火旺燥热'; needEl = '水'; need = '用水降温润燥'; }
+  else if (season === '秋') { kind = '金旺寒凉'; needEl = '火'; need = '用火暖局、兼以水润'; }
+  else { kind = '温润平和'; needEl = null; need = '寒暖尚匀，调候非急所，可随旺衰取用'; }
+  return { season, kind, needEl, need };
+}
+
+// 五行 → 脏腑
+const HEALTH = { 金: '肺与呼吸道', 木: '肝胆', 水: '肾与泌尿生殖', 火: '心与血液循环', 土: '脾胃消化系统' };
+
+// ───────────────────────────────────────────────
+// 第一栏：白话详解（严格按十大模块逐步拆解）
+// ───────────────────────────────────────────────
+function baihua(chart) {
   const s = chart.sizhu;
-  const tg = D.TIANGAN[chart.day_master];
-  const sd = strengthDetail(chart);
+  const dm = chart.day_master;
+  const dmEl = C.elementOfGan(dm);
+  const wx = chart.wuxing;
+  const wxDesc = Object.entries(wx).map(([k, v]) => `${k}行${v}个`).join('、');
+  const ss = chart.shishen_distribution || {};
+  const isMale = chart.birth.gender === '男';
+
+  const parts = [];
+
+  // 模块一：前置准备——排盘基础校准
+  const mz = C.MONTH_ZHI[s.month[1]] || s.month[1] + '月';
+  const tst = chart.birth.true_solar_time;
+  const approx = chart.birth.longitude_approx ? '（出生地经度按120°E近似）' : '';
+  parts.push(
+    `【第一步 · 前置准备：排盘基础校准】\n` +
+    `先把你的出生信息校准成"八字"。公历 ${chart.birth.gregorian}，性别${chart.birth.gender}${approx}。` +
+    `出生地经度 ${chart.birth.longitude}°E，已做真太阳时校正，校正后出生时辰为 ${tst}（经度差校正约 ${chart.birth.long_corr} 分钟、均时差约 ${chart.birth.eq_time} 分钟）。` +
+    `注意：月令不以农历月份定，而由二十四节气划分——你出生在「${mz}」，这才是命理上的"月令"。\n` +
+    `排出的完整四柱（天干+地支本气+藏干）如下：\n${pillarHidden(chart)}\n` +
+    `四柱各管一段人生：年柱看祖上、早年（0-16岁）；月柱看父母、青年（16-32岁）与门户格局；日柱是"你自己"、日支为夫妻宫；时柱看子女、晚年与行事结果。`
+  );
+
+  // 模块二：确立日主
+  parts.push(
+    `【第二步 · 确立日主】\n` +
+    `八字里最重要的一个字是"日主"，它就是出生那天的天干——你的日主是「${dm}」（属${dmEl}行）。` +
+    `其余七个字全部围绕日主来论。日主的本质属性决定了你的先天性格底色：${C.GAN_NATURE[dm]}。`
+  );
+
+  // 模块三：旺衰判定
+  const ling = lingState(dmEl, s.month[1]);
+  const q = quantify(chart);
+  const rt = rootInfo(chart);
+  let strengthPlain = chart.strength === '身弱'
+    ? '通俗讲，你"本钱"稍欠，做事容易累、容易被外界影响，需要有人帮、有环境扶，才使得出力气。'
+    : chart.strength === '身强'
+      ? '通俗讲，你底气足、有主见、扛得住事；但有时太刚太能扛，反易在人际或决策上吃亏，需要适当"泄一泄、松一松"。'
+      : '通俗讲，你不强不弱、刚柔比较均衡，是相对好调理的命局，顺势而行即可。';
+  parts.push(
+    `【第三步 · 旺衰判定（身强/身弱/中和）】旺衰是整个八字的根基，决定后面喜忌怎么取。我们用三套方法交叉验证：\n` +
+    `① 月令定根基（第一优先级）：你月令${s.month[1]}属${ling.season}季，日主${dmEl}行在该季处于「${ling.state}」状态——${ling.note}。\n` +
+    `② 全局生扶 vs 克泄耗统计：把八个字按"帮你的（印+比劫）"和"耗你的（官杀+食伤+财）"加权统计，得到 生扶≈${q.sheng}、克泄耗≈${q.ke}（地支权重大于天干、本气大于藏干）。\n` +
+    `③ 根气补强：日主在地支有${rt.strongRoot}处本气强根、共${rt.anyRoot}处根气${rt.hasRoot ? '' : '（几无根气，偏弱信号明显）'}。\n` +
+    `三点综合，结论：你是「${chart.strength}」（旺衰评分约 ${chart.strength_score}，仅作参考）。${strengthPlain}`
+  );
+
+  // 模块四：十神人事对应
+  const sh = chart.shishen;
+  const zm = sh._zhi_main || {};
+  const shenList = [
+    `年干 ${s.year[0]}→${sh.year_gan}`, `月干 ${s.month[0]}→${sh.month_gan}`, `时干 ${s.hour[0]}→${sh.hour_gan}`,
+    `年支 ${s.year[1]}→${zm.year || sh.year_zhi[0]}`, `月支 ${s.month[1]}→${zm.month || sh.month_zhi[0]}`,
+    `日支 ${s.day[1]}（夫妻宫）→${zm.day || sh.day_zhi[0]}`, `时支 ${s.hour[1]}→${zm.hour || sh.hour_zhi[0]}`,
+  ].join('；');
+  const cats = {};
+  Object.keys(ss).forEach((k) => { const c = shenCategory(k); cats[c] = (cats[c] || 0) + ss[k]; });
+  const catDesc = Object.entries(cats).map(([c, n]) => `${c}（${n}处）`).join('、');
+  parts.push(
+    `【第四步 · 十神人事对应】以日主${dm}为"我"，给其余七个干支逐一标十神：\n${shenList}。\n` +
+    `十神对应固定生活范畴：${Object.entries(SHEN_DOMAIN).map(([k, v]) => `${k}→${v}`).join('；')}。\n` +
+    `你命局中十神分布为：${catDesc}。这些"星"就是构成你人生剧本的各种角色。`
+  );
+
+  // 模块五：格局定格
+  let gejuFit;
+  if (chart.strength === '身弱') gejuFit = '你身弱，格局喜印星、比劫来帮扶，最忌官杀、财星再来加重消耗。';
+  else if (chart.strength === '身强') gejuFit = '你身强，格局可担财、担官，喜财官食伤来制衡自身。';
+  else gejuFit = '你中和，格局以流通为美，不宜过偏。';
   const coor = coordination(chart);
-  let txt = `观其四柱，乃「${s.year} ${s.month} ${s.day} ${s.hour}」也。日主${tg.name}，生于${tg.name}日——${tg.show}，${tg.trait}`;
-  txt += `论其旺衰：日主${sd.dm}五行，${sd.verdict}（旺衰评分约 ${sd.score}，聊作参考）；${sd.ling || '未得月令独旺，当观全局生扶之多寡'}。生于${sd.monthSeason}月，${D.SEASON_NOTE[sd.monthSeason]}。`;
-  txt += `命入${chart.geju}。`;
-  if (coor.length) txt += `干支配合之间：${coor.join('；')}。`;
-  txt += D.TIANGAN_ZONG;
-  return txt;
+  const coorTxt = coor.length ? coor.join('；') + '。' : '全局干支安静、少冲合，人生整体较为平稳。';
+  parts.push(
+    `【第五步 · 格局定格】格局是人生的主要发展模式。定格优先看月柱透出的十神，月令不透则取全局最强十神——你属「${chart.geju}」。` +
+    `${gejuFit}\n格局成败看是否被冲克破坏、有无护卫：你的干支配合中，${coorTxt}`
+  );
+
+  // 模块六：干支作用解析
+  parts.push(
+    `【第六步 · 干支作用解析（性格/人际/吉凶诱因）】上面"格局成败"已列出主要合冲刑害，这里讲它们的含义：\n` +
+    `· 天干五合（如甲己合）：主合作牵绊、人情往来；若化气成功则该五行力量大增。\n` +
+    `· 天干相冲（如甲庚冲）：主思想矛盾、人际对立、是非。\n` +
+    `· 地支六合/三合/三会：主结缘合作、汇聚能量，改变全局强弱。\n` +
+    `· 地支六冲（冲则动）：主地域变动、感情矛盾、工作变动、家庭分歧。\n` +
+    `· 地支相刑：主是非内耗、内心纠结、暗伤。\n` +
+    `· 地支相害：主小人暗中拖累、隐秘烦心。\n` +
+    `位置规则：日支是夫妻宫，被冲/合/刑重点对应婚姻变化；年月管家庭长辈，时柱管远方晚年。紧贴的干支作用力大于远隔，地支力量大于天干。`
+  );
+
+  // 模块七：调候分析
+  const th = tiaoHou(s.month[1]);
+  parts.push(
+    `【第七步 · 调候分析（独立于旺衰的气候刚需）】你出生在${th.season}季（月令${s.month[1]}），格局偏「${th.kind}」，${th.need}。` +
+    `调候与旺衰是两回事：旺衰解决日主强弱平衡，调候解决先天寒热燥湿平衡。二者一致时喜忌统一；冲突时以月令气候轻重取舍——${th.needEl ? `此命调候首取「${th.needEl}」。` : '此命寒暖尚匀，调候非急。'}`
+  );
+
+  // 模块八：六亲/事业/婚姻/健康细分
+  const spouseStar = isMale ? '财星（正财为妻星）' : '官杀星（正官为夫星）';
+  const hasSpouse = isMale ? (ss['正财'] || 0) + (ss['偏财'] || 0) > 0 : (ss['正官'] || 0) + (ss['七杀'] || 0) > 0;
+  const hasGuan = (ss['正官'] || 0) + (ss['七杀'] || 0) > 0;
+  const hasCai = (ss['正财'] || 0) + (ss['偏财'] || 0) > 0;
+  const entries = Object.entries(wx);
+  const mx = entries.filter((e) => e[1] === Math.max(...entries.map((x) => x[1]))).map((e) => e[0]);
+  const mn = entries.filter((e) => e[1] === Math.min(...entries.map((x) => x[1]))).map((e) => e[0]);
+  parts.push(
+    `【第八步 · 六亲 / 事业 / 婚姻 / 健康细分】\n` +
+    `· 婚姻：男命看财、女命看官，兼看夫妻宫（日支${s.day[1]}）。你${isMale ? '男命' : '女命'}，配偶星看${spouseStar}，${hasSpouse ? '配偶星有根气，感情易得踏实牵绊、有经营余地' : '配偶星偏弱，感情更须主动经营、以诚相待'}。日支为夫妻宫，若逢冲合刑则婚姻易有波动。\n` +
+    `· 事业：以格局核心十神（官杀、食伤、财星）为主。${hasGuan ? '命带官杀，具责任与开拓之魄，宜于规矩中担纲建功' : '官杀不显，多凭专业协作立身，不宜强求权位'}；${hasCai ? '命带财星，善经营理财、以才智生财' : '财星不显，求财宜稳扎、以一技立身'}。配用神${chart.yongshen}顺势则宜。\n` +
+    `· 财运：看财星旺衰与日主能否"担财"。${hasCai ? '命带财星，求财有天然向度' : '财星不显，宜踏实积累'}；比劫多则防分财，食伤生财则利创意求财。\n` +
+    `· 六亲：年柱看祖辈、月柱看父母、时柱看子女，看对应宫位十神吉凶。\n` +
+    `· 健康：五行过旺过弱易对应脏腑隐患——${mx.join('、')}偏旺、${mn.join('、')}偏弱；按五行对应：${Object.entries(HEALTH).map(([k, v]) => `${k}旺防${v}`).join('，')}。此仅为趋势参考，具体请以医学检查为准。`
+  );
+
+  // 模块九：大运流年推导
+  const yearGan = s.year[0];
+  const yangYear = C.isYang(C.ganIndex(yearGan));
+  const forward = (yangYear && isMale) || (!yangYear && !isMale);
+  const yong = chart.yongshen.split('、');
+  const ji = chart.jishen.split('、');
+  const dayunList = (chart.dayun || []).slice(0, 6).map((d) => {
+    const els = pillarElements(d.pillar);
+    let tag = '平运';
+    if (containsSet(els, yong)) tag = '利好（贴用神）';
+    else if (containsSet(els, ji)) tag = '宜守（犯忌神）';
+    return `${d.start_age}岁起「${d.pillar}」${tag}`;
+  }).join('；');
+  parts.push(
+    `【第九步 · 大运流年推导】大运按"阳年男/阴年女顺排、阴年男/阳年女逆排"起运，每步管十年。你的年干${yearGan}为${yangYear ? '阳' : '阴'}年、${isMale ? '男' : '女'}命，故大运${forward ? '顺' : '逆'}排。\n` +
+    `关键大运：${dayunList}。走喜用神大运整体上扬；走忌神大运宜守不宜攻，遇冲合刑易触发结婚、换工作、搬家、破财等变动。\n` +
+    `流年细化：把具体年份的干支代入，看它与原局+当下大运的生克合冲，即可判断当年吉凶（如冲夫妻宫多应婚恋、动财星多应财运）。你可在关心之年代入查看。`
+  );
+
+  // 模块十：综合喜忌总结
+  const allEls = ['木', '火', '土', '金', '水'];
+  const used = [...new Set([...chart.yongshen.split('、'), ...chart.xishen.split('、'), ...chart.jishen.split('、')])];
+  const xian = allEls.filter((e) => !used.includes(e));
+  parts.push(
+    `【第十步 · 综合喜忌总结】\n` +
+    `· 喜用神：${chart.yongshen}——能平衡全局、补全格局缺陷的"良药"，行业/方位/颜色/习惯都可往这方向靠。\n` +
+    `· 喜神：${chart.xishen}——辅助用神。\n` +
+    `· 忌神：${chart.jishen}——加剧失衡、带来压力损耗者，宜避。\n` +
+    `· 闲神：${xian.length ? xian.join('、') + '——力量中性，增减无明显吉凶' : '无（五行皆已分属用/喜/忌）'}。\n` +
+    `整合五层结论：日干${dmEl}本性（${C.GAN_NATURE[dm].split('，')[0]}）+ 旺衰带来的处事短板（${chart.strength}）+ 格局主打方向（${chart.geju}）+ 干支合冲带来的人际牵绊 + 调候所需改善（${th.needEl ? '取' + th.needEl : '寒暖尚匀'}）。\n` +
+    `重要提醒：先天仅为趋势，冲克合动才是运势触发条件；即使忌神运，也可通过职业选择、行为习惯规避不利，喜运也需自身行动才能兑现。命理看的是"概率与倾向"，不是宿命定论。`
+  );
+
+  return parts.join('\n\n');
 }
 
-function personality(chart) {
-  const tg = D.TIANGAN[chart.day_master];
-  const lines = [`日主属${tg.name}，《滴天髓》有云：「${tg.jing}」`];
-  lines.push(`气象取象：${tg.trait}`);
-  const dist = chart.shishen_distribution || {};
-  const ranked = Object.entries(dist)
-    .filter(([k]) => k !== '比肩' && k !== '劫财')
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 2)
-    .map(([k]) => k);
-  ranked.forEach((k) => { if (D.SHEN_SHOW[k]) lines.push(`命带${k}：${D.SHEN_SHOW[k]}`); });
-  return lines.join('');
-}
-
-function yongShen(chart) {
-  const sd = strengthDetail(chart);
-  let txt = `取用之法，先辨旺衰：${sd.verdict}。`;
-  txt += D.YONG_PRINCIPLES.fu_yi + ' ';
-  txt += D.YONG_PRINCIPLES.bing_yao + ' ';
-  const season = sd.monthSeason;
-  if (season === '冬') txt += `又此命冬生而寒湿，依调候之理「寒虽甚，要暖有气」，是以火为调候之要；`;
-  else if (season === '夏') txt += `又此命夏生而炎燥，依调候之理「暖虽至，要寒有根」，是以水为调候之关键；`;
-  else txt += D.YONG_PRINCIPLES.tiao_hou + ' ';
-  txt += `综而观之，原局用神为「${chart.yongshen}」（喜神${chart.xishen}），所忌者为「${chart.jishen}」。${D.YONG_PRINCIPLES.qing_zhuo}`;
-  return txt;
-}
-
-// 周易参证：以《易》卦象与义理印证命局，按卦气—时位逻辑推演
+// 周易参证：以《易》卦象与义理印证命局
 function zhouyiSection(chart) {
   const { gua, tuiyan } = Z.derive(chart);
   const gdisplay = gua.map((g) => `${g.glyph}${g.name}（${g.xiang}）`).join('、');
@@ -102,141 +302,10 @@ function zhouyiSection(chart) {
   return txt;
 }
 
-function career(chart) {
-  const dist = chart.shishen_distribution || {};
-  const hasCai = (dist['正财'] || 0) + (dist['偏财'] || 0) > 0;
-  const hasGuan = (dist['正官'] || 0) + (dist['七杀'] || 0) > 0;
-  let s = `事业看官杀——权柄、规则、担当之星；财运看财星——养命、资源之星。二者皆须贴合用神，方能得以发用。`;
-  if (hasGuan) s += '命带官杀，具责任意识与开拓之魄，宜于规矩之中担纲、于秩序之内建功；';
-  else s += '官杀不显，事业多凭专业与协作立身，不宜强求权位；';
-  if (hasCai) s += '命带财星，于经营、理财有天然之向，善以才智生财；';
-  else s += '财星不显，求财宜稳扎稳打，以一技之长立身；';
-  s += `配合用神${chart.yongshen}、喜神${chart.xishen}，顺势而为则事业财运可得其宜；至若忌神${chart.jishen}所临之大运流年，宜守不宜攻。`;
-  return s;
-}
-
-function marriage(chart) {
-  const isMale = chart.birth.gender === '男';
-  const spouseStar = isMale ? '财星（正财为妻星）' : '官杀星（正官为夫星）';
-  const spousePalace = chart.sizhu.day[1];
-  const dist = chart.shishen_distribution || {};
-  const hasSpouse = isMale ? (dist['正财'] || 0) + (dist['偏财'] || 0) > 0 : (dist['正官'] || 0) + (dist['七杀'] || 0) > 0;
-  let s = `六亲之法：男命以财为妻、女命以官为夫。配偶星看${spouseStar}，配偶宫（日支）为「${spousePalace}」（属${C.ZHI_MAIN[spousePalace]}）。`;
-  s += hasSpouse ? '配偶星有根气，感情中易得踏实之牵绊，亦有经营之余地；' : '配偶星偏弱，感情更须主动经营、以诚相待；';
-  s += '相处之道，贵在多换位思考、以柔化刚。缘分之深浅、相处之质，终由二人共同栽培，非命定之数也。';
-  return s;
-}
-
-function dayun(chart) {
-  const yong = chart.yongshen.split('、');
-  const ji = chart.jishen.split('、');
-  const list = (chart.dayun || []).slice(0, 4);
-  if (!list.length) return '大运信息暂缺。';
-  const parts = list.map((d) => {
-    const els = pillarElements(d.pillar);
-    let tag = '平运';
-    if (containsSet(els, yong)) tag = '利好之运（贴用神）';
-    else if (containsSet(els, ji)) tag = '宜守之运（犯忌神）';
-    return `${d.start_age}岁起「${d.pillar}」${tag}`;
-  });
-  return '关键大运：' + parts.join('；') + '。' + D.YUN_PRINCIPLE + '（此仅为阶段之趋势，具体境遇仍看个人之抉择与环境。）';
-}
-
-function advice(chart) {
-  const yong = chart.yongshen.split('、');
-  const tg = D.TIANGAN[chart.day_master];
-  const map = {
-    木: '多亲近自然、文化、教育、咨询策划之务，以养「生发」之气',
-    火: '投身展示、传播、创意之业，以发其热情与行动之力',
-    土: '夯实专业之基、稳健理财与人际，重信守约',
-    金: '于规则与专业之域精进、果敢以决，然须防执之太过',
-    水: '保持学习、灵活以变，借人际之流动与信息之资源',
-  };
-  const tips = yong.map((e) => map[e]).filter(Boolean);
-  const base = `依《滴天髓》用神之理，用神为${chart.yongshen}（喜${chart.xishen}、忌${chart.jishen}）。${tg.name}之喜：${tg.xi}；所忌：${tg.ji}。建言：`;
-  if (!tips.length) return base + '顺势而为、扬长避短，于所擅长之域持续积累足矣。';
-  return base + tips.slice(0, 3).join('；') + '。';
-}
-
-// 白话详解：用最通俗的大白话，把整套命局逐条拆开讲清楚，作为报告第一栏
-function baihua(chart) {
-  const s = chart.sizhu;
-  const dm = chart.day_master;
-  const dmEl = C.elementOfGan(dm);
-  const tg = D.TIANGAN[dm];
-  const sd = strengthDetail(chart);
-  const wx = chart.wuxing;
-  const wxDesc = Object.entries(wx).map(([k, v]) => `${k}行${v}个`).join('、');
-  const ss = chart.shishen_distribution || {};
-  const topShen = Object.entries(ss)
-    .filter(([k]) => k !== '比肩' && k !== '劫财')
-    .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k);
-
-  // 日主五行意象（口语化）
-  const elImg = {
-    木: '它好比春天破土的小草、攀附的藤蔓——温柔、坚韧，生命力强，但也需要依靠和滋养才能长好',
-    火: '它好比一簇跳动的火苗——热情外露、行动力强，招人注意，但也要有柴薪添着才能烧得久',
-    土: '它好比厚重的大地——稳重、踏实、包容，是承载万物的根基，不张扬却最可靠',
-    金: '它好比精炼过的金属——刚毅、果断、讲原则，棱角分明，认准的事很难被说服',
-    水: '它好比流动的江河——聪明、灵活、适应力强，遇阻就绕、遇壑便盈，最善变通',
-  };
-
-  // 旺衰大白话
-  let strengthPlain;
-  if (chart.strength === '身弱') {
-    strengthPlain = '通俗点说，你天生"本钱"稍欠，做事更容易累、更容易被外界影响，需要有人帮、有环境扶，才能把力气使出来。';
-  } else if (chart.strength === '身强') {
-    strengthPlain = '通俗点说，你天生底气足、有主见、扛得住事；但有时正因为太刚硬、太能扛，反而容易在人际关系或决策上吃亏，需要适当"泄一泄、松一松"。';
-  } else {
-    strengthPlain = '通俗点说，你不强也不弱，刚柔比较均衡，是相对好调理的命局，顺势而行即可。';
-  }
-
-  // 格局大白话
-  let gejuPlain;
-  if (chart.geju.includes('七杀')) gejuPlain = '七杀代表挑战、压力和魄力——你天生带一股不服输的劲，敢冲敢闯，但压力也常如影随形，关键在把压力化作动力。';
-  else if (chart.geju.includes('正官')) gejuPlain = '正官代表规则、责任与名望——你做事讲规矩、有担当，更适合在框架内稳步建功。';
-  else if (chart.geju.includes('食神') || chart.geju.includes('伤官')) gejuPlain = '食伤代表才华、表达与创意——你脑子活、点子多，适合靠才艺或想法吃饭。';
-  else if (chart.geju.includes('财')) gejuPlain = '财星代表资源、财富与务实——你对钱和物质有较好的嗅觉，善于把事情落到实处。';
-  else if (chart.geju.includes('印')) gejuPlain = '印星代表学习、庇护与贵人——你容易得到长辈、知识或平台的托举，适合走积累与沉淀的路。';
-  else gejuPlain = '你的格局比较中和，多种力量交织，没有特别突出的单一主线。';
-
-  // 用神大白话
-  let yongPlain;
-  if (chart.strength === '身弱') yongPlain = `因为你身弱，最喜"生你、帮你"的力量——比如你的用神「${chart.yongshen}」能补强你，喜神「${chart.xishen}」也来帮忙；最要避开的是忌神「${chart.jishen}」，它会再消耗你。`;
-  else if (chart.strength === '身强') yongPlain = `因为你身强，最喜"泄你、克你"的力量来平衡——你的用神「${chart.yongshen}」就是干这事的，喜神「${chart.xishen}」相辅；忌神「${chart.jishen}」再来添力，反而会过刚易折。`;
-  else yongPlain = `你中和，用神以"调候与流通"为先，核心是用神「${chart.yongshen}」、喜神「${chart.xishen}」，忌神「${chart.jishen}」宜避。`;
-
-  // 五行偏枯白话
-  const entries = Object.entries(wx);
-  const max = Math.max(...entries.map((e) => e[1]));
-  const min = Math.min(...entries.map((e) => e[1]));
-  const mx = entries.filter((e) => e[1] === max).map((e) => e[0]);
-  const mn = entries.filter((e) => e[1] === min).map((e) => e[0]);
-  const wxPlain = `其中${mx.join('、')}偏旺、${mn.join('、')}偏弱——打个比方，就像一道菜里${mx.join('、')}味重了些、${mn.join('、')}味淡了些，整体再调和一下口感就更好。`;
-
-  let t = '';
-  t += `【先认识你的"八字"】所谓八字，说白了就是你出生那一刻的"时间密码"：把年、月、日、时各换算成一组天干地支，凑成八个字。你的八个字依次是——年柱「${s.year}」、月柱「${s.month}」、日柱「${s.day}」、时柱「${s.hour}」。\n`;
-  t += `【哪个字代表"你"】这八个字里，最关键的是"日主"，也就是你出生那天的天干（${dm}），它代表的是"你这个人"本身。你的日主属${tg.name}（${dmEl}行），${elImg[dmEl] || '它是你性格与能量的底色'}。\n`;
-  t += `【你是强是弱（旺衰）】八字最讲究"日主"是强是弱。${strengthPlain}你是${chart.strength}（评语：${sd.verdict.replace(/。.*$/, '')}；旺衰评分约 ${sd.score}，仅作参考）。你出生在${sd.monthSeason}月，${D.SEASON_NOTE[sd.monthSeason]}\n`;
-  t += `【你的"人生牌型"（格局）】格局相当于你这盘八字的主旋律。你属于「${chart.geju}」——${gejuPlain}\n`;
-  t += `【最该补什么（用神）】这是八字里最实用的一件事："用神"就是能让你的命局变平衡的"良药"。${yongPlain}往后选行业、交朋友、挑时机，尽量往用神的方向靠，就更容易顺。\n`;
-  t += `【五行分布一览】你八字里的五行数量是：${wxDesc}。${wxPlain}\n`;
-  if (topShen.length) t += `【性格里最明显的几股力量】按十神看，你命中最突出的三样是：${topShen.join('、')}。它们叠加在一起，构成了你对外最常被感知到的气质。\n`;
-  t += `（下面几栏会用更接近典籍的方式，从命理、周易两面再做参证，你可以对照着看。）`;
-  return t;
-}
-
 function buildReport(chart) {
   const sections = [
     { key: '白话详解', text: baihua(chart) },
-    { key: '命局总览', text: overview(chart) },
-    { key: '日主气象', text: personality(chart) },
-    { key: '用神与忌神', text: yongShen(chart) },
     { key: '周易参证', text: zhouyiSection(chart) },
-    { key: '事业财运', text: career(chart) },
-    { key: '婚姻感情', text: marriage(chart) },
-    { key: '大运走势', text: dayun(chart) },
-    { key: '行动建议', text: advice(chart) },
   ];
   sections.forEach((s) => { s.text = sanitize(s.text); });
   return sections;

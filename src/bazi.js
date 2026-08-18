@@ -31,6 +31,7 @@ function trueSolarTime(input) {
   let h = Math.floor(total / 60);
   let mi = Math.round(total - h * 60);
   if (mi === 60) { h += 1; mi = 0; }
+  if (h >= 24) { h -= 24; const d2 = addDays(y, mo, da, 1); y = d2.y; mo = d2.m; da = d2.d; }
   // 晚子时（23:00 起）按次日换日，日柱/时干用次日
   let shifted = false;
   if (h >= 23) {

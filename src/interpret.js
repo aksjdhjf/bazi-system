@@ -120,19 +120,18 @@ function coordination(chart) {
   Object.keys(D.SANHE).forEach((k) => { if (k.split('').every((c) => zhis.includes(c))) notes.push(`地支${k}三合${D.SANHE[k]}局，气势凝聚`); });
   Object.keys(C.SANHUI).forEach((k) => { if (k.split('').every((c) => zhis.includes(c))) notes.push(`地支${k}三会${C.SANHUI[k]}方，一行能量汇聚放大`); });
   for (let i = 0; i < zhis.length; i++) for (let j = i + 1; j < zhis.length; j++) {
-    const pair = [zhis[i], zhis[j]].sort().join('');
-    const rev = [zhis[j], zhis[i]].sort().join('');
-    if (D.LIUHE[pair] || D.LIUHE[rev]) notes.push(`地支${zhis[i]}${zhis[j]}六合（合${D.LIUHE[pair] || D.LIUHE[rev]}），主牵绊结缘`);
-    if (D.LIUCHONG.includes(pair)) notes.push(`地支${zhis[i]}${zhis[j]}六冲，主变动起伏、根基动摇`);
-    if (C.XING_PAIRS.includes(pair)) notes.push(`地支${zhis[i]}${zhis[j]}相刑，主是非内耗、暗伤`);
-    if (C.HAI_PAIRS.includes(pair)) notes.push(`地支${zhis[i]}${zhis[j]}相害，主小人暗中损耗`);
+    const p1 = zhis[i] + zhis[j], p2 = zhis[j] + zhis[i];
+    if (D.LIUHE[p1] || D.LIUHE[p2]) notes.push(`地支${zhis[i]}${zhis[j]}六合（合${D.LIUHE[p1] || D.LIUHE[p2]}），主牵绊结缘`);
+    if (D.LIUCHONG.includes(p1) || D.LIUCHONG.includes(p2)) notes.push(`地支${zhis[i]}${zhis[j]}六冲，主变动起伏、根基动摇`);
+    if (C.XING_PAIRS.includes(p1) || C.XING_PAIRS.includes(p2)) notes.push(`地支${zhis[i]}${zhis[j]}相刑，主是非内耗、暗伤`);
+    if (C.HAI_PAIRS.includes(p1) || C.HAI_PAIRS.includes(p2)) notes.push(`地支${zhis[i]}${zhis[j]}相害，主小人暗中损耗`);
   }
   C.XING_SELF.forEach((z) => { if (zhis.filter((x) => x === z).length > 1) notes.push(`地支${z}自刑，主内心纠结`); });
   const he = { '甲己': '土', '乙庚': '金', '丙辛': '水', '丁壬': '木', '戊癸': '火' };
   for (let i = 0; i < gans.length; i++) for (let j = i + 1; j < gans.length; j++) {
-    const key = [gans[i], gans[j]].sort().join('');
-    if (he[key]) notes.push(`天干${gans[i]}${gans[j]}五合（化${he[key]}），主牵缠合作、性情圆融`);
-    if (C.GAN_CHONG.includes(key)) notes.push(`天干${gans[i]}${gans[j]}相冲，主思想矛盾、人际对立`);
+    const k1 = gans[i] + gans[j], k2 = gans[j] + gans[i];
+    if (he[k1] || he[k2]) notes.push(`天干${gans[i]}${gans[j]}五合（化${he[k1] || he[k2]}），主牵缠合作、性情圆融`);
+    if (C.GAN_CHONG.includes(k1) || C.GAN_CHONG.includes(k2)) notes.push(`天干${gans[i]}${gans[j]}相冲，主思想矛盾、人际对立`);
   }
   return notes;
 }
@@ -144,7 +143,8 @@ function xunKong(chart) {
   const zs = ((z - g) % 12 + 12) % 12; // 旬首地支序号
   const k1 = C.ZHI[((zs - 1) % 12 + 12) % 12];
   const k2 = C.ZHI[((zs - 2) % 12 + 12) % 12];
-  return [k1, k2];
+  // 按地支顺序排（如甲子旬空亡戌亥，而非亥戌）
+  return [k1, k2].sort((a, b) => C.ZHI.indexOf(a) - C.ZHI.indexOf(b));
 }
 
 // 流年干支（公元年份 → 六十甲子）
@@ -237,7 +237,6 @@ function mingjuZonglan(chart) {
   const mz = chart.sizhu.month[1];
   const gs = gejuShort(chart);
   const yueShen = chart.shishen._zhi_main.month; // 月支本气十神
-  const monthShen = chart.shishen.month_gan;
   const season = D.SEASON[mz];
 
   let tiaoW;
@@ -357,7 +356,8 @@ function ganHeHua(chart) {
   const tbl = C.SEASON_WANGXIU[season];
   const result = [];
   for (let i = 0; i < gans.length; i++) for (let j = i + 1; j < gans.length; j++) {
-    const key = [gans[i], gans[j]].sort().join('');
+    const k1 = gans[i] + gans[j], k2 = gans[j] + gans[i];
+    const key = he[k1] ? k1 : k2;
     if (!he[key]) continue;
     const huaEl = he[key];
     // 条件一：化神在月令旺或相

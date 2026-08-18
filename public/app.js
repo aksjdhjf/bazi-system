@@ -54,19 +54,6 @@ themeBtn.onclick = () => {
   syncThemeBtn();
 };
 
-// 八卦水印
-(function fillBagua() {
-  const g = document.getElementById('baguaTrigrams');
-  const glyphs = ['☰', '☱', '☲', '☳', '☴', '☵', '☶', '☷'];
-  glyphs.forEach((gl, i) => {
-    const a = (i * 45 - 90) * Math.PI / 180;
-    const x = 100 + 84 * Math.cos(a), y = 100 + 84 * Math.sin(a);
-    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    t.setAttribute('x', x); t.setAttribute('y', y + 7); t.textContent = gl;
-    g.appendChild(t);
-  });
-})();
-
 let known = {};
 formToggle.onclick = () => { formPanel.hidden = !formPanel.hidden; };
 
@@ -101,40 +88,62 @@ function baguaSvg() {
   ['☰', '☱', '☲', '☳', '☴', '☵', '☶', '☷'].forEach((gl, i) => {
     const a = (i * 45 - 90) * Math.PI / 180;
     const x = 50 + 40 * Math.cos(a), y = 50 + 40 * Math.sin(a);
-    g += `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" font-size="13" text-anchor="middle" fill="var(--gold)">${gl}</text>`;
+    g += `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" font-size="13" text-anchor="middle" fill="var(--gold-2)">${gl}</text>`;
   });
-  return `<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="47" fill="none" stroke="var(--gold)" stroke-width="2"/>` +
-    `<circle cx="50" cy="50" r="30" fill="none" stroke="var(--gold)" stroke-width="1"/>${g}` +
+  return `<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="47" fill="none" stroke="var(--gold-2)" stroke-width="2"/>` +
+    `<circle cx="50" cy="50" r="30" fill="none" stroke="var(--gold-2)" stroke-width="1"/>${g}` +
     `<text x="50" y="58" font-size="26" text-anchor="middle" fill="var(--text)">☯</text></svg>`;
+}
+
+// 命盘罗盘（v2 星尘罗盘）：四柱定四方、八卦环绕、日主居中
+function luopanSvg(chart) {
+  const s = chart.sizhu || {};
+  const year = s.year || '', month = s.month || '', day = s.day || '', hour = s.hour || '';
+  const dm = chart.day_master || '', st = chart.strength || '', gj = chart.geju || '';
+  const bagua = [
+    ['☰', '乾', 200, 40], ['☷', '坤', 200, 376], ['☲', '离', 372, 205], ['☵', '坎', 28, 205],
+    ['☱', '兑', 316, 82], ['☶', '艮', 84, 82], ['☴', '巽', 316, 330], ['☳', '震', 84, 330]
+  ];
+  let bg = '';
+  bagua.forEach(([g, name, x, y]) => {
+    bg += `<text x="${x}" y="${y}" text-anchor="middle" font-family="serif" font-size="15" style="fill:var(--text-soft)">${g} ${name}</text>`;
+  });
+  return `<svg class="luopan" viewBox="0 0 400 400">
+    <defs><radialGradient id="plate" cx="50%" cy="50%">
+      <stop offset="0%" stop-color="rgba(230,199,106,0.14)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.18)"/></radialGradient></defs>
+    <g class="ring-rev">
+      <circle cx="200" cy="200" r="190" fill="none" style="stroke:var(--gold-3);stroke-width:1.5" opacity=".5"/>
+      ${bg}
+    </g>
+    <g class="ring">
+      <circle cx="200" cy="200" r="160" fill="none" style="stroke:var(--gold-2);stroke-width:1" opacity=".35" stroke-dasharray="4 8"/>
+      <circle cx="200" cy="200" r="128" fill="none" style="stroke:var(--gold-3);stroke-width:1.5"/>
+      <text x="200" y="80" text-anchor="middle" class="luopan-label">年柱 ${year}</text>
+      <text x="200" y="324" text-anchor="middle" class="luopan-label">月柱 ${month}</text>
+      <text x="74" y="205" text-anchor="middle" class="luopan-label">日柱 ${day}</text>
+      <text x="326" y="205" text-anchor="middle" class="luopan-label">时柱 ${hour}</text>
+    </g>
+    <circle cx="200" cy="200" r="92" fill="url(#plate)" style="stroke:var(--gold-3);stroke-width:1"/>
+    <path d="M200 108 A92 92 0 0 1 200 292 A46 46 0 0 1 200 200 A46 46 0 0 0 200 108 Z" style="fill:var(--gold-3)" opacity=".9"/>
+    <circle cx="200" cy="154" r="10" style="fill:var(--ink-900)"/>
+    <circle cx="200" cy="246" r="10" style="fill:var(--gold-2)"/>
+    <text x="200" y="190" text-anchor="middle" font-family='"Kaiti SC","STKaiti","KaiTi",serif' font-size="20" style="fill:var(--text)">${dm}日主</text>
+    <text x="200" y="218" text-anchor="middle" font-family='"Kaiti SC","STKaiti","KaiTi",serif' font-size="13" style="fill:var(--text-soft)">${st} · ${gj}</text>
+  </svg>`;
 }
 
 // 渲染报告
 function renderReport(chart, report, disclaimer) {
   const box = document.createElement('div'); box.className = 'report';
-  const s = chart.sizhu;
 
-  // 命盘小条：四柱 + 五行色点 + 十神
-  const strip = document.createElement('div'); strip.className = 'chart-strip';
-  const pillars = [
-    { lab: '年柱', gz: s.year, ss: chart.shishen.year_gan },
-    { lab: '月柱', gz: s.month, ss: chart.shishen.month_gan },
-    { lab: '日柱', gz: s.day, ss: '日主' },
-    { lab: '时柱', gz: s.hour, ss: chart.shishen.hour_gan },
-  ];
-  pillars.forEach((p) => {
-    const cell = document.createElement('div'); cell.className = 'pillar';
-    const lab = document.createElement('div'); lab.className = 'lab'; lab.textContent = p.lab;
-    const gz = document.createElement('div'); gz.className = 'gz'; gz.textContent = p.gz;
-    const ss = document.createElement('div'); ss.className = 'ss'; ss.textContent = p.ss;
-    const dots = document.createElement('div'); dots.className = 'wx-dots';
-    [GAN_WX[p.gz[0]], ZHI_WX[p.gz[1]]].forEach((el) => {
-      if (!el) return;
-      const d = document.createElement('span'); d.className = 'dot';
-      d.style.background = `var(--wx-${el})`; d.title = el + '行'; dots.appendChild(d);
-    });
-    cell.append(lab, gz, ss, dots); strip.appendChild(cell);
-  });
-  const meta = document.createElement('div'); meta.className = 'strip-meta';
+  // 命盘罗盘
+  const lp = document.createElement('div'); lp.className = 'luopan-wrap';
+  lp.innerHTML = luopanSvg(chart);
+  box.appendChild(lp);
+
+  // 命局简摘
+  const meta = document.createElement('div'); meta.className = 'meta-row';
   [['日主', `${chart.day_master}（${chart.strength}）`], ['格局', chart.geju], ['用神', chart.yongshen]]
     .forEach(([k, v]) => {
       const c = document.createElement('div'); c.className = 'meta-chip';
@@ -142,13 +151,16 @@ function renderReport(chart, report, disclaimer) {
       c.querySelector('b').textContent = v;
       meta.appendChild(c);
     });
-  strip.appendChild(meta);
-  box.appendChild(strip);
+  box.appendChild(meta);
 
   // 解读输出
   report.forEach((secData, idx) => {
     const sec = document.createElement('div');
     sec.className = 'sec' + (idx === 0 ? ' first' : '');
+    ['tl', 'tr', 'bl', 'br'].forEach((c) => {
+      const sp = document.createElement('span'); sp.className = 'corner ' + c;
+      sec.appendChild(sp);
+    });
     if (secData.key === '周易参证') {
       sec.classList.add('zhouyi');
       const svg = document.createElement('div'); svg.innerHTML = baguaSvg();
@@ -254,5 +266,27 @@ formPanel.onsubmit = (e) => {
   const last = chatEl.querySelector('.msg.user:last-child .bubble');
   if (last) last.textContent = summary;
 };
+
+// 星尘粒子背景（v2）
+(function stars() {
+  const cv = document.getElementById('stars');
+  const ctx = cv && cv.getContext('2d');
+  if (!ctx) return;
+  let W, H, pts = [];
+  function resize() { W = cv.width = innerWidth; H = cv.height = innerHeight; }
+  resize(); addEventListener('resize', resize);
+  for (let i = 0; i < 110; i++) pts.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.6 + .3, vx: (Math.random() - .5) * .25, vy: (Math.random() - .5) * .2, tw: Math.random() * Math.PI * 2 });
+  (function loop() {
+    ctx.clearRect(0, 0, W, H);
+    for (const p of pts) {
+      p.x += p.vx; p.y += p.vy; p.tw += .02;
+      if (p.x < 0) p.x = W; if (p.x > W) p.x = 0; if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+      const a = .25 + .35 * Math.abs(Math.sin(p.tw));
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(230,199,106,${a})`; ctx.fill();
+    }
+    requestAnimationFrame(loop);
+  })();
+})();
 
 addBotText('你好，我是玄机阁八字批命 ☯ 告诉我你的公历出生年月日、时辰、性别和出生城市，我为你排盘，并以半文半白、周易合参的方式细细讲来。\n也可点下方「详细填写」逐项输入。');

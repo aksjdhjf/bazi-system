@@ -3,16 +3,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>玄机阁 · 八字命理</title>
+  <title>玄机阁 · 八字命书 — 星尘罗盘</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <canvas id="stars"></canvas>
+  <div class="bg-glow"></div>
+  <svg class="bagua-watermark" viewBox="0 0 200 200" aria-hidden="true">
+    <g fill="none" stroke="var(--gold-2)" stroke-width="1">
+      <circle cx="100" cy="100" r="96"/>
+      <circle cx="100" cy="100" r="64"/>
+      <circle cx="100" cy="100" r="32"/>
+      <path d="M100 4 A96 96 0 0 1 100 196 A48 48 0 0 1 100 100 A48 48 0 0 0 100 4 Z" fill="var(--gold-2)"/>
+      <circle cx="100" cy="52" r="9" fill="var(--ink-900)"/>
+      <circle cx="100" cy="148" r="9" fill="var(--gold-2)"/>
+    </g>
+  </svg>
+
   <div class="app">
     <nav class="nav">
       <div class="brand">
         <span class="taiji"></span>
         <div class="brand-txt">
-          <h1>玄机阁<span class="gold">·</span>八字</h1>
+          <h1>玄机阁<span class="gold">·</span>八字命书</h1>
           <p class="tagline">排盘论命 · 滴天髓与周易双典合参</p>
         </div>
       </div>
@@ -20,13 +33,9 @@
     </nav>
 
     <section class="hero">
-      <svg class="bagua" viewBox="0 0 200 200" aria-hidden="true">
-        <circle cx="100" cy="100" r="98" fill="none" stroke="currentColor" stroke-width="1"/>
-        <circle cx="100" cy="100" r="70" fill="none" stroke="currentColor" stroke-width="1"/>
-        <g id="baguaTrigrams" fill="currentColor" font-size="22" text-anchor="middle" font-family="serif"></g>
-      </svg>
-      <h2>八字命理<span class="gold">·</span>周易参证</h2>
-      <p>填出生信息，即得半文半白之命局解读——通俗可懂，深奥有据</p>
+      <h2>夜观星象<span class="gold">·</span>参透命理</h2>
+      <p>以《滴天髓》定旺衰 · 以《周易》参卦气</p>
+      <div class="divider"></div>
     </section>
 
     <main id="chat" class="chat"></main>

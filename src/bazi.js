@@ -100,19 +100,49 @@ function evalStrength(dayMasterGan, baZi, baZiWuXing) {
   return { strength, level, score: +score.toFixed(1) };
 }
 
-// 调候用神（《滴天髓》调候法：冬寒须火、夏炎须水、湿土须火、燥土须水、秋金寒凉须火）
+// 调候用神（《滴天髓》调候法，按节气深浅分级）：
+// 冬寒(亥子)须火、夏炎(巳午)须水、湿土(丑辰)须火、燥土(未戌)须水；
+// 秋分深浅：申月初秋暑气未消宜水润金（金白水清）、酉月仲秋金肃渐寒宜火温局。
 function tiaoHouEl(monthZhi) {
   if (monthZhi === '丑' || monthZhi === '辰') return '火'; // 湿土厚重，用火除湿暖局
   if (monthZhi === '未' || monthZhi === '戌') return '水'; // 燥土焦枯，用水润土
-  const season = { 寅: '春', 卯: '春', 辰: '春', 巳: '夏', 午: '夏', 未: '夏', 申: '秋', 酉: '秋', 戌: '秋', 亥: '冬', 子: '冬', 丑: '冬' }[monthZhi];
-  if (season === '冬') return '火';
-  if (season === '夏') return '水';
-  if (season === '秋') return '火';
-  return null; // 春温润平和，调候非急
+  if (monthZhi === '亥' || monthZhi === '子') return '火'; // 冬寒，用火暖局
+  if (monthZhi === '巳' || monthZhi === '午') return '水'; // 夏炎，用水润局
+  if (monthZhi === '申') return '水'; // 初秋金旺、暑气未消，宜水润金（金白水清）
+  if (monthZhi === '酉') return '火'; // 仲秋金肃、天气渐寒，宜火温局
+  return null; // 春（寅卯）温润平和，调候非急
 }
 
-// 用神 / 喜神 / 忌神（扶抑取用为主；调候为急者另见 chart.tiaohou_shen，取用优先）
-function evalYong(dayMasterGan, strengthLevel) {
+// 从格 / 专旺识别（《滴天髓》：从得真者只论从；专旺顺其势）
+// 从格：身弱 + 地支全无根 + 天干无比劫印 → 弃命从势，取克泄耗
+// 专旺：身强 + 克泄耗方（天干+地支本气）极少 → 顺其旺势，用食伤泄秀
+function evalSpecialGeju(dayMasterGan, baZi, strengthLevel) {
+  const dm = C.elementOfGan(dayMasterGan);
+  let hasRoot = false;
+  [baZi[0][1], baZi[1][1], baZi[2][1], baZi[3][1]].forEach((z) => {
+    (C.ZHI_HIDDEN[z] || []).forEach((g) => { if (C.elementOfGan(g) === dm) hasRoot = true; });
+  });
+  let hasBang = false;
+  [baZi[0][0], baZi[1][0], baZi[3][0]].forEach((g) => {
+    const ge = C.elementOfGan(g);
+    if (ge === dm || C.SHENG[ge] === dm) hasBang = true;
+  });
+  let keCount = 0;
+  [baZi[0][0], baZi[1][0], baZi[3][0]].forEach((g) => {
+    const ge = C.elementOfGan(g);
+    if (!(ge === dm || C.SHENG[ge] === dm)) keCount++;
+  });
+  [baZi[0][1], baZi[1][1], baZi[2][1], baZi[3][1]].forEach((z) => {
+    const we = C.ZHI_MAIN[z];
+    if (!(we === dm || C.SHENG[we] === dm)) keCount++;
+  });
+  if (strengthLevel === 'weak' && !hasRoot && !hasBang) return 'cong';
+  if (strengthLevel === 'strong' && keCount <= 1) return 'zhuanwang';
+  return null;
+}
+
+// 用神 / 喜神 / 忌神（扶抑取用为主；从格/专旺自动切换；调候为急者另见 chart.tiaohou_shen）
+function evalYong(dayMasterGan, strengthLevel, special) {
   const dm = C.elementOfGan(dayMasterGan);
   const bi = dm;                 // 比劫（同我）
   const shen = C.SHENG_INV[dm];  // 印（生我）
@@ -120,7 +150,13 @@ function evalYong(dayMasterGan, strengthLevel) {
   const cai = C.KE[dm];          // 财（我克）
   const guan = C.KE_INV[dm];     // 官杀（克我）
   let yong, xi, ji;
-  if (strengthLevel === 'weak') {
+  if (special === 'cong') {
+    // 从格：弃命从势，取克泄耗（食伤/财/官杀），忌印比帮扶
+    yong = [shang, cai, guan]; xi = [shang, cai, guan]; ji = [bi, shen];
+  } else if (special === 'zhuanwang') {
+    // 专旺格：顺其旺势，用食伤泄秀，忌财官逆制
+    yong = [shang, bi, shen]; xi = [shang, bi]; ji = [guan, cai];
+  } else if (strengthLevel === 'weak') {
     yong = [bi, shen]; xi = [bi, shen]; ji = [shang, cai, guan];
   } else if (strengthLevel === 'strong') {
     yong = [guan, shang, cai]; xi = [guan, shang, cai]; ji = [bi, shen];
@@ -197,7 +233,8 @@ function computeChart(input) {
     hour_zhi: C.zhiShiShen(dayMaster, baZi[3][1]),
   };
   const strengthObj = evalStrength(dayMaster, baZi, baZiWuXing);
-  const yong = evalYong(dayMaster, strengthObj.level);
+  const special = evalSpecialGeju(dayMaster, baZi, strengthObj.level); // 从格/专旺识别
+  const yong = evalYong(dayMaster, strengthObj.level, special);
   const thEl = tiaoHouEl(baZi[1][1]); // 调候用神（调候为急，取用优先）
   const shishenZhiAll = [shishenZhi.year_zhi, shishenZhi.month_zhi, shishenZhi.day_zhi, shishenZhi.hour_zhi];
   const gansAll = [baZi[0][0], baZi[1][0], baZi[2][0], baZi[3][0]];
@@ -226,6 +263,7 @@ function computeChart(input) {
     },
     strength: strengthObj.strength,
     strength_score: strengthObj.score,
+    special_geju: special,
     yongshen: yong.yongshen,
     xishen: yong.xishen,
     jishen: yong.jishen,

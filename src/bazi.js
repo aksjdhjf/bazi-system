@@ -117,23 +117,21 @@ function evalYong(dayMasterGan, strengthLevel) {
   };
 }
 
-// 格局判定（基于十神分布）
-function evalGeju(dayMasterGan, shishenGan, shishenZhiAll, strengthLevel) {
+// 格局判定（《子平真诠》格局法：以月令为尊，月支本气所藏十神定格）
+function evalGeju(dayMasterGan, shishenGan, shishenZhiAll, strengthLevel, monthZhiMainShen) {
   const all = [...shishenGan, ...shishenZhiAll.flat()];
   const cnt = {};
   all.forEach((s) => { cnt[s] = (cnt[s] || 0) + 1; });
-  const order = ['七杀', '正官', '食神', '伤官', '正印', '偏印', '正财', '偏财', '比肩', '劫财'];
-  let top = null, topN = 0;
-  order.forEach((s) => { if ((cnt[s] || 0) > topN) { topN = cnt[s]; top = s; } });
+  const yue = monthZhiMainShen; // 月支本气十神
   let name = '普通格（日主中和，无突出十神）';
-  if (top === '七杀') name = '七杀格（偏官格）';
-  else if (top === '正官') name = '正官格';
-  else if (top === '食神') name = '食神格';
-  else if (top === '伤官') name = '伤官格';
-  else if (top === '正印' || top === '偏印') name = '印格（正印/偏印）';
-  else if (top === '正财' || top === '偏财') name = '财格';
-  else if (top === '比肩' || top === '劫财') name = '比劫格（建禄/月劫）';
-  return { geju: name, distribution: cnt };
+  if (yue === '七杀') name = '七杀格（偏官格）';
+  else if (yue === '正官') name = '正官格';
+  else if (yue === '食神') name = '食神格';
+  else if (yue === '伤官') name = '伤官格';
+  else if (yue === '正印' || yue === '偏印') name = '印格（正印/偏印）';
+  else if (yue === '正财' || yue === '偏财') name = '财格';
+  else if (yue === '比肩' || yue === '劫财') name = '比劫格（建禄/月劫）';
+  return { geju: name, distribution: cnt, yueling_shen: yue };
 }
 
 // 大运
@@ -172,7 +170,7 @@ function computeChart(input) {
   const strengthObj = evalStrength(dayMaster, baZi, baZiWuXing);
   const yong = evalYong(dayMaster, strengthObj.level);
   const shishenZhiAll = [shishenZhi.year_zhi, shishenZhi.month_zhi, shishenZhi.day_zhi, shishenZhi.hour_zhi];
-  const geju = evalGeju(dayMaster, shishenGan, shishenZhiAll, strengthObj.level);
+  const geju = evalGeju(dayMaster, shishenGan, shishenZhiAll, strengthObj.level, shishenZhiMain[1]);
 
   return {
     birth: {

@@ -133,6 +133,32 @@ function luopanSvg(chart) {
   </svg>`;
 }
 
+// 四柱展示条（罗盘下方直接列出四柱）
+const WX_CLASS = { 木: 'wx-mu', 火: 'wx-huo', 土: 'wx-tu', 金: 'wx-jin', 水: 'wx-shui' };
+function sizhuStrip(chart) {
+  const s = chart.sizhu || {};
+  const sh = chart.shishen || {};
+  const zm = sh._zhi_main || {};
+  const g = (x) => x || '';
+  const pillars = [
+    ['年柱', g(s.year), g(sh.year_gan), g(zm.year)],
+    ['月柱', g(s.month), g(sh.month_gan), g(zm.month)],
+    ['日柱', g(s.day), '日主', g(zm.day)],
+    ['时柱', g(s.hour), g(sh.hour_gan), g(zm.hour)],
+  ];
+  return pillars.map(([name, gz, shenG, shenZ]) => {
+    const gan = gz[0] || '', zhi = gz[1] || '';
+    const gCls = WX_CLASS[GAN_WX[gan]] || '';
+    const zCls = WX_CLASS[ZHI_WX[zhi]] || '';
+    return `<div class="pillar${name === '日柱' ? ' dm' : ''}">
+      <div class="p-name">${name}</div>
+      <div class="p-gan ${gCls}">${gan}</div>
+      <div class="p-zhi ${zCls}">${zhi}</div>
+      <div class="p-shen">${shenG}${shenZ ? ' · ' + shenZ : ''}</div>
+    </div>`;
+  }).join('');
+}
+
 // 渲染报告
 function renderReport(chart, report, disclaimer) {
   const box = document.createElement('div'); box.className = 'report';
@@ -141,6 +167,11 @@ function renderReport(chart, report, disclaimer) {
   const lp = document.createElement('div'); lp.className = 'luopan-wrap';
   lp.innerHTML = luopanSvg(chart);
   box.appendChild(lp);
+
+  // 四柱列出（罗盘下方直接列出四柱）
+  const sz = document.createElement('div'); sz.className = 'sizhu-strip';
+  sz.innerHTML = sizhuStrip(chart);
+  box.appendChild(sz);
 
   // 命局简摘
   const meta = document.createElement('div'); meta.className = 'meta-row';

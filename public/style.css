@@ -138,6 +138,21 @@ html[data-theme="light"] .taiji::after{background:#f2ead6}
 .luopan .ring-rev{transform-origin:center;animation:spin 40s linear infinite reverse}
 @keyframes spin{to{transform:rotate(360deg)}}
 .luopan-label{font-family:var(--kai);font-size:13px;fill:var(--text-soft)}
+
+/* ===== 四柱展示条（罗盘下方直接列出四柱）===== */
+.sizhu-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:0 auto 4px;width:100%;max-width:600px}
+.pillar{background:var(--ink-800);border:1px solid var(--line);border-radius:var(--r-strip);
+  padding:12px 8px 10px;text-align:center;display:flex;flex-direction:column;gap:3px;transition:transform .25s,border-color .25s,box-shadow .25s}
+.pillar:hover{transform:translateY(-3px);border-color:var(--gold-2)}
+.pillar.dm{border-color:var(--gold-2);box-shadow:0 0 16px rgba(230,199,106,.22);background:linear-gradient(180deg,rgba(230,199,106,.12),var(--ink-800))}
+.p-name{font-size:11px;color:var(--text-soft);letter-spacing:3px}
+.p-gan,.p-zhi{font-family:var(--kai);font-weight:600;line-height:1.15}
+.p-gan{font-size:32px}
+.p-zhi{font-size:32px}
+.p-shen{font-size:11px;color:var(--text-soft);letter-spacing:1px}
+.wx-mu{color:var(--wx-木)} .wx-huo{color:var(--wx-火)} .wx-tu{color:var(--wx-土)}
+.wx-jin{color:var(--wx-金)} .wx-shui{color:var(--wx-水)}
+
 .meta-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:14px}
 .meta-chip{background:var(--ink-800);border:1px solid var(--line);border-radius:var(--r-strip);padding:8px 14px;font-size:13.5px}
 .meta-chip b{color:var(--gold-2);font-weight:600}

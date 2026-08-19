@@ -175,6 +175,72 @@ function shenCategory(s) {
   return '比劫';
 }
 
+// ── 去模板化工具：确定性哈希与句池选择（同输入必同输出，杜绝 Math.random，保证同一八字结果可复现）──
+function stableHash(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+function pickFrom(pool, seedStr) {
+  return pool[stableHash(String(seedStr)) % pool.length];
+}
+// 种子：日主干序 + 月支序 + 格局 + 旺衰 + 特殊格局 + 附加因子
+function seedOf(chart, extra) {
+  return [
+    C.ganIndex(chart.day_master),
+    C.zhiIndex(chart.sizhu.month[1]),
+    chart.geju || '',
+    chart.strength || '',
+    chart.special_geju || '',
+    extra || '',
+  ].join('|');
+}
+// 某十神在四柱的落点（透干/藏支 + 柱位 + 干支）
+function shenLocations(chart, shen) {
+  const pillars = [chart.sizhu.year, chart.sizhu.month, chart.sizhu.day, chart.sizhu.hour];
+  const posGan = ['年干', '月干', '日干', '时干'];
+  const posZhi = ['年支', '月支', '日支', '时支'];
+  const out = [];
+  pillars.forEach((p, i) => {
+    if (i !== 2 && C.shiShen(chart.day_master, p[0]) === shen) {
+      out.push({ via: '透干', pos: posGan[i], gz: p[0], main: true });
+    }
+    (C.ZHI_HIDDEN[p[1]] || []).forEach((g, k) => {
+      if (C.shiShen(chart.day_master, g) === shen) {
+        out.push({ via: k === 0 ? '本气' : '藏干', pos: posZhi[i], gz: `${p[1]}中${g}`, main: k === 0 });
+      }
+    });
+  });
+  return out;
+}
+// 配偶星（男财女官杀）落点
+function spouseStar(chart) {
+  const isMale = chart.birth.gender === '男';
+  const targetShens = isMale ? ['正财', '偏财'] : ['正官', '七杀'];
+  const locs = [];
+  targetShens.forEach((s) => {
+    shenLocations(chart, s).forEach((x) => locs.push({ shen: s, ...x }));
+  });
+  return { isMale, targetShens, locs };
+}
+// 十神五大类落点
+function categoryLocs(chart) {
+  const map = { 官杀: [], 财星: [], 印星: [], 食伤: [], 比劫: [] };
+  Object.keys(chart.shishen_distribution || {}).forEach((s) => {
+    const cat = shenCategory(s);
+    if (!map[cat]) return;
+    shenLocations(chart, s).forEach((x) => map[cat].push({ shen: s, ...x }));
+  });
+  return map;
+}
+// 落点描述（透干/藏支）
+function locDesc(loc) {
+  return loc.via === '透干' ? `${loc.pos}${loc.gz}透「${loc.shen}」` : `${loc.pos}${loc.gz}藏「${loc.shen}」`;
+}
+
 // 调候分析
 function tiaoHou(monthZhi) {
   const season = D.SEASON[monthZhi];
@@ -335,6 +401,42 @@ function jichu(chart) {
 // ───────────────────────────────────────────────
 // 栏三：命局旺衰深度解析（日主本性/得令/得地/得势/力量对比/结论/调候）
 // ───────────────────────────────────────────────
+// 旺衰结论：多因子交叉（旺衰 × 得令态 × 根气位置 × 克泄耗具体干支 × 调候），句池确定性选句
+function wangshuaiSummary(chart, ling, rt, det, th) {
+  const dm = chart.day_master;
+  const dmEl = C.elementOfGan(dm);
+  const mz = chart.sizhu.month[1];
+  const strength = chart.strength;
+
+  let rootTxt;
+  if (rt.strongRoot > 0) rootTxt = `${dmEl}行本气强根见于${rt.strongPos.join('、')}`;
+  else if (rt.anyRoot > 0) rootTxt = `${dmEl}行仅有余气之根，根浮不固`;
+  else rootTxt = `四柱地支几无${dmEl}行根气`;
+
+  const keTxt = det.keList.length ? det.keList.slice(0, 3).join('、') : '无';
+  const shengTxt = det.shengList.length ? det.shengList.slice(0, 3).join('、') : '无';
+  const tiaoTxt = th.needEl ? `；月令${mz}属「${th.kind}」，需「${th.needEl}」调候` : '；寒暖尚匀，无调候之扰';
+
+  const pools = {
+    身弱: [
+      `其因在于：日主${dm}（${dmEl}）生${mz}月而处「${ling.state}」地，${rootTxt}，复受${keTxt}等克泄耗，生扶仅靠${shengTxt}${tiaoTxt}。`,
+      `推原其故：${dm}日主于月令${mz}「${ling.state}」，${rootTxt}，克泄耗（${keTxt}）偏重、帮身（${shengTxt}）不足${tiaoTxt}。`,
+      `${dm}日主${rootTxt}，月令${mz}「${ling.state}」，${keTxt}层层耗泄而${shengTxt}势孤，众寡不敌${tiaoTxt}。`,
+    ],
+    身强: [
+      `其因在于：日主${dm}（${dmEl}）得${mz}月「${ling.state}」之令，${rootTxt}，生扶有${shengTxt}，克泄耗仅${keTxt}，气势偏旺${tiaoTxt}。`,
+      `推原其故：${dm}日主于月令${mz}「${ling.state}」，${rootTxt}，生扶（${shengTxt}）有力、克泄（${keTxt}）不敌${tiaoTxt}。`,
+      `${dm}日主${rootTxt}，月令${mz}「${ling.state}」，${shengTxt}层层帮身而${keTxt}势孤，故身旺${tiaoTxt}。`,
+    ],
+    中和: [
+      `其因在于：日主${dm}（${dmEl}）生${mz}月处「${ling.state}」，${rootTxt}，生扶（${shengTxt}）与克泄（${keTxt}）大体相抵，刚柔得中${tiaoTxt}。`,
+      `推原其故：${dm}日主于月令${mz}「${ling.state}」，${rootTxt}，生扶（${shengTxt}）与克泄耗（${keTxt}）旗鼓相当，故中和${tiaoTxt}。`,
+      `${dm}日主${rootTxt}，月令${mz}「${ling.state}」，${shengTxt}与${keTxt}相衡，无偏胜之弊${tiaoTxt}。`,
+    ],
+  };
+  return pickFrom(pools[strength] || pools['中和'], seedOf(chart, 'wangshuai'));
+}
+
 function wangshuai(chart) {
   const dm = chart.day_master;
   const dmEl = C.elementOfGan(dm);
@@ -346,10 +448,7 @@ function wangshuai(chart) {
   const th = tiaoHou(chart.sizhu.month[1]);
   const yong = chart.yongshen.split('、');
 
-  let summary;
-  if (chart.strength === '身弱') summary = '此命身弱无疑，如风中残烛，最忌再遇克泄耗之运，喜得生扶方能站稳。';
-  else if (chart.strength === '身强') summary = '此命身强，如乔木成林，须泄其秀、疏其枝方能成器，最忌再生扶。';
-  else summary = '此命中和，气血匀停，刚柔各得其所，随运取用即可。';
+  const summary = wangshuaiSummary(chart, ling, rt, det, th);
 
   const tiaoTong = th.needEl
     ? (yong.includes(th.needEl) ? `调候用神（${th.needEl}）与扶身用神（${chart.yongshen}）${chart.yongshen.includes(th.needEl) ? '重合，用神专一，行运改善明显' : '方向一致'}。` : `调候用神（${th.needEl}）与扶身用神（${chart.yongshen}）不尽相同，取用时以月令气候刚需为优先（调候为急，扶抑次之），二者兼顾。`)
@@ -473,32 +572,117 @@ function gejuHehua(chart) {
 
   const coor = coordination(chart);
   const broken = coor.filter((c) => c.includes('冲') || c.includes('刑') || c.includes('害'));
-  const gejuCheng = broken.length
-    ? `格局用神恐有冲克刑害之扰（${broken.join('；')}），须看是否有印星转化护卫，有则格局不破，无则格局有损。`
-    : '格局干支配合尚安，用神无破，格局较为清纯。';
-  const jiuYing = gejuJiuYing(chart);
-
-  const heHua = ganHeHua(chart);
-  const zheng = zhengHe(chart);
 
   const kong = xunKong(chart);
   const zhis = [chart.sizhu.year[1], chart.sizhu.month[1], chart.sizhu.day[1], chart.sizhu.hour[1]];
   const kongHit = ['年支', '月支', '日支', '时支'].filter((_, i) => kong.includes(zhis[i]));
 
+  // 格局成败：无冲刑害时绑定月令与定格用神，句池确定性选句
+  const gejuAnPool = [
+    `格局用神「${geShen}」（${geGan}${tou ? '透干' : '藏支'}）落于月令${mz}，四柱干支无冲克刑害，用神清纯不破，格局成立较顺。`,
+    `月令${mz}司权，取「${geShen}」为用（${geGan}${tou ? '透' : '不透'}），干支配合安静、无冲刑害之忧，格局可安。`,
+    `格局以「${geShen}」立，用神${geGan}安于${mz}月，四柱少冲合刑害，喜用（${chart.yongshen}）无损，格局清正。`,
+  ];
+  const gejuCheng = broken.length
+    ? `格局用神恐有冲克刑害之扰（${broken.join('；')}），须看是否有印星转化护卫，有则格局不破，无则格局有损。`
+    : pickFrom(gejuAnPool, seedOf(chart, 'geju-an'));
+  const jiuYing = gejuJiuYing(chart);
+
+  const heHua = ganHeHua(chart);
+  const zheng = zhengHe(chart);
+
   const dingge = tou
     ? `月令${mz}所藏天干为${hiddenNames}，其中「${geGan}」透出天干，依《子平真诠》「透干会支，以透出者定格」，取其所成十神「${geShen}」定格`
     : `月令${mz}所藏天干为${hiddenNames}，皆不透干，取月令本气「${geGan}」（十神${geShen}）定格`;
+
+  // 天干无五合兜底：绑定具体天干十神
+  const ganHePool = [
+    `年干${chart.sizhu.year[0]}（${chart.shishen.year_gan}）、月干${chart.sizhu.month[0]}（${chart.shishen.month_gan}）、时干${chart.sizhu.hour[0]}（${chart.shishen.hour_gan}）三干各自独立、无五合相牵，性情相对直率不黏连。`,
+    `年、月、时三干（${chart.sizhu.year[0]}${chart.sizhu.month[0]}${chart.sizhu.hour[0]}）互不五合，人际与性情少受合星裹挟，行事较为果决独立。`,
+    `天干${chart.sizhu.year[0]}、${chart.sizhu.month[0]}、${chart.sizhu.hour[0]}皆无五合，主为人不喜牵缠、立场分明。`,
+  ];
+  const ganHeTxt = heHua.length ? heHua.join('；') + '。' : pickFrom(ganHePool, seedOf(chart, 'ganhe'));
+
+  // 天干无争合兜底
+  const zhengPool = [
+    '天干无叠见争合，无多方牵制、机会两难之象。',
+    '三干无争合，无"合住又争"的纠缠，选择相对单一明确。',
+    '天干少争合，主遇事少受多方牵制，立场较稳。',
+  ];
+  const zhengTxt = zheng.length ? zheng.join('；') + '。' : pickFrom(zhengPool, seedOf(chart, 'zhenghe'));
+
+  // 地支安静兜底：绑定月令与用神
+  const zhiPool = [
+    `全局地支（${zhis.join('')}）安静少合冲，月令${mz}之气贯穿全局，人生节奏较稳。`,
+    `四支${zhis.join('')}无冲合刑害，气机清静，${mz}月令之「${geShen}」用神安稳，主命途起伏较小。`,
+    `地支${zhis.join('')}各自安静、无合冲刑害，喜用（${chart.yongshen}）不易受动，整体平稳。`,
+  ];
+  const zhiTxt = coor.length ? coor.join('；') + '。' : pickFrom(zhiPool, seedOf(chart, 'zhi'));
 
   return (
     `【所定格局】你属「${chart.geju}」。定格理由：遵循《子平真诠》格局法「以月令为尊、透干优先」——${dingge}。\n` +
     `【格局成败】${gejuCheng}\n` +
     (jiuYing.length ? `【格局救应】${jiuYing.join('；')}。\n` : '') +
-    `【天干五合】${heHua.length ? heHua.join('；') + '。' : '天干无五合，人际与性情较少被合星牵绊，行事相对独立。'}\n` +
-    `【争合取象】${zheng.length ? zheng.join('；') + '。' : '天干无争合，无多方牵制之象。'}\n` +
-    `【地支作用】${coor.length ? coor.join('；') + '。' : '全局地支安静、少合冲，人生整体平稳。'}（合冲并见时，紧贴之合冲优先、力量大者优先。）\n` +
+    `【天干五合】${ganHeTxt}\n` +
+    `【争合取象】${zhengTxt}\n` +
+    `【地支作用】${zhiTxt}（合冲并见时，紧贴之合冲优先、力量大者优先。）\n` +
     `【空亡影响】空亡在「${kong.join('、')}」，${kongHit.length ? kongHit.join('、') + '逢空，对应领域（' + {'年支': '祖辈与早年根基', '月支': '父母与青年运', '日支': '夫妻宫与中年', '时支': '子女与晚年'}[kongHit[0]] + '等）力量虚浮、事多不成或缘浅。' : '命局四柱无逢空，各领域力量较实。'}`
   );
 }
+
+// 十神性格句池（做事/人际/情绪三维度，每维多句，按命局特征确定性选句，避免千人一面）
+const SHEN_STYLE = {
+  七杀: {
+    do: ['果决敢闯、遇强则强，压力越大越有斗志', '雷厉风行、敢担风险，喜攻坚克难', '目标感强、行动迅猛，不畏硬仗'],
+    rel: ['立场强硬、易与人冲突，宜以柔济刚', '重义气但易压人一头，当存宽厚', '较刚愎、少纳言，宜多听人劝'],
+    emo: ['性急易躁，须防冲动误事', '情绪外放、来得快去得也快', '胜负心重、易紧绷，宜养静气'],
+  },
+  正官: {
+    do: ['循规蹈矩、按章办事，重秩序', '踏实守正、一步一阶，不喜越矩', '讲求方法、有条不紊，执行力稳'],
+    rel: ['重名声、讲原则，易得人信任', '待人持正、有分寸，但略拘谨', '重礼数、守承诺，人缘清正'],
+    emo: ['克制自律，情绪较平稳', '内敛不外露，喜藏情绪', '较理性、少冲动，偶显严肃'],
+  },
+  食神: {
+    do: ['平和从容、靠才华与口才取胜', '顺势而为、不急不躁，善发挥所长', '以技养身、以和待人，节奏舒缓'],
+    rel: ['随和好相处、人缘佳', '温和宽厚、易结善缘', '不争不抢、讨人喜欢'],
+    emo: ['乐观豁达，情绪较平稳', '知足常乐、少纠结', '心态松弛、易自洽'],
+  },
+  伤官: {
+    do: ['敢想敢干、才华外露，不拘一格', '点子多、爱创新，行动出位', '恃才而进、锋芒毕露，喜走新路'],
+    rel: ['锋芒较盛、不服管束', '直言不讳、易得罪人，宜藏锋', '才高易招妒，须以谦和待人'],
+    emo: ['情绪起伏大、易挑剔', '爱憎分明、来得强烈', '敏感易激，宜节怒'],
+  },
+  正印: {
+    do: ['沉稳内敛、爱钻研，走厚积薄发之路', '重学问、喜思考，做事有根底', '以德服人、慢工出细活'],
+    rel: ['温和厚道、得长辈缘', '慈和包容、易获提携', '重情重义、待人诚恳'],
+    emo: ['平和但有依赖性', '情绪稳定、略被动', '安于现状、不喜突变'],
+  },
+  偏印: {
+    do: ['别具一格、善独立思考，喜冷门', '另辟蹊径、不随大流', '钻研深、点子偏，长于专业'],
+    rel: ['较疏离、喜独处', '与人保持距离、交友贵精', '不喜热闹、独来独往'],
+    emo: ['敏感多思、易多疑', '心思重、喜琢磨', '内敛警觉、易情绪内耗'],
+  },
+  正财: {
+    do: ['务实稳健、勤劳务实，重积累', '精打细算、按部就班', '踏实经营、信守承诺'],
+    rel: ['重信守诺、讲实际', '待人实在、不虚与委蛇', '勤恳可靠、易得信任'],
+    emo: ['稳定但偏保守', '情绪平稳、不冒进', '务实理性、少幻想'],
+  },
+  偏财: {
+    do: ['灵活机变、善抓机会，喜流动之财', '眼明手快、善于交际生财', '敢于尝试、不拘一业'],
+    rel: ['广结人缘、大方豪爽', '出手阔绰、朋友多', '善谈会来事、人脉广'],
+    emo: ['活跃但不耐寂寞', '情绪来得快、喜新鲜', '好动爱热闹、闲不住'],
+  },
+  比肩: {
+    do: ['独立自主、靠实力打拼', '亲力亲为、不喜依赖', '与人较劲、凭真本事'],
+    rel: ['重朋友义气、但易竞争', '待同辈诚恳、爱抱团', '与人相处直来直往'],
+    emo: ['倔强好强、不服输', '自尊心强、易较劲', '性子硬、不易低头'],
+  },
+  劫财: {
+    do: ['果敢行动力强、说干就干', '冲劲足、敢闯敢拼', '重行动、不拖泥带水'],
+    rel: ['仗义但易分财争利', '对朋友大方、易被拖累', '讲义气、但边界感弱'],
+    emo: ['冲动易变、情绪化', '来得快、易上头', '易激动、须防意气用事'],
+  },
+};
 
 // ───────────────────────────────────────────────
 // 栏五：十神与性格画像（三维度）
@@ -519,20 +703,19 @@ function shishenXingge(chart) {
     `日支${s.day[1]}→${zm.day || sh.day_zhi[0]}`, `时支${s.hour[1]}→${zm.hour || sh.hour_zhi[0]}`,
   ].join('、');
 
-  // 性格三维度（按最强十神）
-  const styleMap = {
-    七杀: '做事风格果决敢闯、有魄力，压力越大越能激发斗志；人际上容易刚愎自用、与人冲突；情绪上易急躁冲动',
-    正官: '做事风格循规蹈矩、注重章法；人际上重名声、讲原则、得人信任；情绪上较克制自律',
-    食神: '做事风格平和从容、靠才华与口才；人际上随和好相处、人缘佳；情绪上乐观豁达',
-    伤官: '做事风格敢想敢干、才华外露；人际上锋芒较盛、不服管束；情绪上情绪起伏大、易挑剔',
-    正印: '做事风格沉稳内敛、爱钻研；人际上温和厚道、得长辈缘；情绪上平和但有依赖性',
-    偏印: '做事风格别具一格、善独立思考；人际上较疏离、喜独处；情绪上敏感多思',
-    正财: '做事风格务实稳健、勤劳务实；人际上重信守诺、讲实际；情绪上稳定但偏保守',
-    偏财: '做事风格灵活机变、善抓机会；人际上广结人缘、大方豪爽；情绪上活跃但不耐寂寞',
-    比肩: '做事风格独立自主、靠实力；人际上重朋友义气、但易竞争；情绪上倔强好强',
-    劫财: '做事风格果敢行动力强；人际上仗义但易分财争利；情绪上冲动易变',
-  };
-  const style = styleMap[top] || '做事风格稳健中正；人际上平和；情绪上稳定';
+  // 最强十神落点（透干/藏支 + 具体柱位 + 干支），结合落柱落神织入性格
+  const topLoc = shenLocations(chart, top);
+  const locTxt = topLoc.length
+    ? topLoc.map((l) => (l.via === '透干' ? `${l.pos}${l.gz}透干` : `${l.pos}${l.gz}藏`)).join('、')
+    : '全局藏于余气，力量较隐';
+  const viaMain = topLoc.some((l) => l.via === '透干') ? '透干而显' : '藏支而隐';
+  const st = SHEN_STYLE[top] || SHEN_STYLE['正官'];
+  const doTxt = pickFrom(st.do, seedOf(chart, `do-${top}`));
+  const relTxt = pickFrom(st.rel, seedOf(chart, `rel-${top}`));
+  const emoTxt = pickFrom(st.emo, seedOf(chart, `emo-${top}`));
+  const dmEl = C.elementOfGan(dm);
+  const dmNature = C.GAN_NATURE[dm].split('，')[0];
+  const wsMod = chart.strength === '身弱' ? '身弱则其性偏内敛、须借势' : chart.strength === '身强' ? '身强则其性外放、易过' : '中和则其性较稳';
 
   const coor = coordination(chart);
   const heNums = coor.filter((c) => c.includes('合')).length;
@@ -541,7 +724,7 @@ function shishenXingge(chart) {
 
   return (
     `【十神分布概览】以日主${dm}为"我"，七字标十神：${pos}。其中力量最强、最贴身的是「${top}」（${topShow.trim()}）。\n` +
-    `【核心性格画像】以「${top}」为主导，融合日主${dm}本性（${C.GAN_NATURE[dm].split('，')[0]}），你的性格可从三个维度看：①做事风格：${style.split('；')[0]}；②人际模式：${style.split('；')[1]}；③情绪特点：${style.split('；')[2]}。\n` +
+    `【核心性格画像】你的最强十神「${top}」落于${locTxt}，属${viaMain}；日主${dm}（属${dmEl}行，${dmNature}），${wsMod}。性格三维：①做事风格：${doTxt}；②人际模式：${relTxt}；③情绪特点：${emoTxt}。\n` +
     `【十神组合效应】${combos.length ? combos.join('；') + '。' : '无明显特殊十神组合，性格以日主本性与最强十神为主导。'}\n` +
     `【合冲对性格人际的影响】${heChong}`
   );
@@ -560,8 +743,9 @@ function liuQin(chart) {
   const hasYin = (ss['正印'] || 0) + (ss['偏印'] || 0) > 0;
   const hasBiJie = (ss['比肩'] || 0) + (ss['劫财'] || 0) > 0;
 
-  // 婚恋（宫位+星曜三重印证：日支坐十神 + 配偶星旺衰 + 夫妻宫逢冲合刑）
+  // 婚恋（宫位+星曜三重印证：日支坐十神 + 配偶星旺衰落点 + 夫妻宫逢冲合刑）
   const dayZhiMainShen = chart.shishen._zhi_main.day; // 日支本气十神（配偶宫坐何星）
+  const dayZhiHidden = (C.ZHI_HIDDEN[dayZhi] || []).map((g) => `${g}(${C.shiShen(chart.day_master, g)})`).join('、');
   const hunRels = ['年支', '月支', '时支'];
   const hunRelsZhi = [chart.sizhu.year[1], chart.sizhu.month[1], chart.sizhu.hour[1]];
   const dayChong = [];
@@ -569,47 +753,70 @@ function liuQin(chart) {
     const r = zhiRelation(dayZhi, z);
     if (r) dayChong.push(`${r}${hunRels[i]}(${z})`);
   });
-  const zuoDesc = {
-    正财: '配偶务实稳重、重家庭', 偏财: '配偶慷慨灵活、善交际',
-    正官: '配偶正派有担当、重规矩', 七杀: '配偶个性强势、有魄力',
-    正印: '配偶宽厚慈爱、得长辈缘', 偏印: '配偶心思独特、有偏才',
-    食神: '配偶温和随性、懂生活', 伤官: '配偶才华外露、个性强',
-    比肩: '配偶独立好强、易有竞争', 劫财: '配偶行动力强、易争拗',
+  const zuoPool = {
+    正财: ['务实稳重、重家庭、善持家', '精打细算、顾家守成', '勤恳重信、长于理财'],
+    偏财: ['慷慨灵活、善交际、出手大方', '会来事、人缘广、爱面子', '机变活泼、不喜拘束'],
+    正官: ['正派有担当、重规矩、顾名声', '端庄守礼、自律性强', '责任感重、有原则'],
+    七杀: ['个性强势、有魄力、敢作敢当', '果决刚硬、掌控欲强', '行动力强、不拖沓'],
+    正印: ['宽厚慈爱、得长辈缘、顾家', '温和包容、重情义', '慈和厚道、乐于付出'],
+    偏印: ['心思独特、有偏才、较孤僻', '独到聪慧、喜静', '思维跳脱、不按常理'],
+    食神: ['温和随性、懂生活、有口福', '乐观和善、好相处', '从容淡泊、会享受'],
+    伤官: ['才华外露、个性强、不服输', '锋芒毕露、有主见', '聪明外显、情绪较烈'],
+    比肩: ['独立好强、易有竞争、讲义气', '自立自重、要强', '同气相求、易争拗'],
+    劫财: ['行动力强、易争拗、重朋友', '冲劲足、爱热闹', '爽快仗义、但易冲动'],
   };
-  let hun = `${isMale ? '男命以财为妻' : '女命以官杀为夫'}。夫妻宫为日支${dayZhi}，坐「${dayZhiMainShen}」——${zuoDesc[dayZhiMainShen] || '配偶性情随坐支而定'}。`;
-  hun += isMale
-    ? (hasCai ? `配偶星（财）在命中有气，正缘可期、感情易得牵绊。` : `配偶星（财）不显，正缘偏迟、感情须主动经营。`)
-    : (hasGuan ? `配偶星（官杀）在命中有气，正缘可期、感情易得牵绊。` : `配偶星（官杀）不显，正缘偏迟、感情须主动经营。`);
-  if (dayChong.length) hun += `然夫妻宫逢${dayChong.join('、')}，婚姻易有波动，宜晚婚、择性格包容之伴侣。`;
-  else hun += `夫妻宫安稳，婚姻根基较实。`;
+  const zuoDesc = pickFrom(zuoPool[dayZhiMainShen] || ['配偶性情随坐支而定'], seedOf(chart, `zuo-${dayZhiMainShen}`));
+  let hun = `${isMale ? '男命以财为妻' : '女命以官杀为夫'}。夫妻宫为日支${dayZhi}（藏干${dayZhiHidden}），本气坐「${dayZhiMainShen}」，主配偶${zuoDesc}。`;
 
-  // 事业
+  const sp = spouseStar(chart);
+  if (sp.locs.length) {
+    const locList = sp.locs.map((l) => (l.via === '透干' ? `${l.pos}${l.gz}透「${l.shen}」` : `${l.pos}${l.gz}藏「${l.shen}」`)).join('、');
+    hun += `配偶星（${sp.targetShens.join('/')}）在命中有气，见${locList}，正缘可期、感情易得牵绊。`;
+  } else {
+    hun += `配偶星（${sp.targetShens.join('/')}）全局不显，正缘偏迟、感情须主动经营。`;
+  }
+  if (dayChong.length) hun += `然夫妻宫（日支${dayZhi}）逢${dayChong.join('、')}，婚姻易有波动，宜晚婚、择性格包容之伴侣。`;
+  else hun += `夫妻宫（日支${dayZhi}）与年月时三支皆无冲合刑害，宫位清静，婚姻根基较实。`;
+
+  // 事业（绑定具体十神落点）
+  const cat = categoryLocs(chart);
+  const guanLoc = cat['官杀'].map(locDesc).join('、');
+  const yinLoc = cat['印星'].map(locDesc).join('、');
+  const shishangLoc = cat['食伤'].map(locDesc).join('、');
+  const caiLoc = cat['财星'].map(locDesc).join('、');
   let shiye;
-  if (hasGuan && hasYin) shiye = '官印相生，宜体制内、公门、大平台，循规蹈矩可稳步升迁。';
-  else if (hasShiShang && hasCai) shiye = '食伤生财，宜经商创业、靠才艺技术变现。';
-  else if (hasShiShang) shiye = '食伤泄秀，宜技术、创意、自由职业，凭一技之长立身。';
-  else if (hasCai) shiye = '财星为用，宜经商理财、务实经营。';
+  if (hasGuan && hasYin) shiye = `官印相生：官杀见${guanLoc}、印星见${yinLoc}，宜体制内、公门、大平台，循规蹈矩可稳步升迁。`;
+  else if (hasShiShang && hasCai) shiye = `食伤生财：食伤见${shishangLoc}、财星见${caiLoc}，宜经商创业、靠才艺技术变现。`;
+  else if (hasShiShang) shiye = `食伤泄秀：食伤见${shishangLoc}，宜技术、创意、自由职业，凭一技之长立身。`;
+  else if (hasCai) shiye = `财星为用：财星见${caiLoc}，宜经商理财、务实经营。`;
   else shiye = '官杀财星皆不显，多凭专业协作立身，不宜强求权位。';
   const qiYunAge = (chart.dayun && chart.dayun[0]) ? chart.dayun[0].start_age : 0;
   shiye += `结合大运，${qiYunAge}岁起运后逐步进入事业上升通道，走用神运时（${chart.yongshen}当令之年）事业机遇最明显。`;
 
-  // 财运
+  // 财运（绑定财星落点）
   let cai;
-  if (hasCai) cai = '命带财星，求财有天然向度；' + (hasShiShang ? '食伤生财，利创意求财、技能变现' : '宜稳扎稳打、以正财为主');
+  if (hasCai) cai = `命带财星（见${caiLoc}），求财有天然向度；` + (hasShiShang ? `食伤（${shishangLoc}）生财，利创意求财、技能变现` : '宜稳扎稳打、以正财为主');
   else cai = '财星不显，求财宜踏实积累、以一技之长立身';
   if (hasBiJie && hasCai) cai += '；但比劫夺财，合作易分财，理财宜独不宜众，防破财竞争。';
   else cai += '。';
   if (chart.strength === '身弱' && hasCai) cai += '（身弱财多不担财，宜先固本再求财，勿贪多冒进。）';
 
-  // 六亲
-  const liuqin = `年柱看祖辈（${chart.sizhu.year[0]}${chart.sizhu.year[1]}）、月柱看父母（${chart.sizhu.month[0]}${chart.sizhu.month[1]}）、时柱看子女（${chart.sizhu.hour[0]}${chart.sizhu.hour[1]}）。${hasYin ? '印星在命，与长辈、学历、贵人之缘较深' : '印星不显，长辈助力有限，宜自强'}；${hasShiShang ? '食伤在命，子女缘分、才华表达有向度' : '食伤不显，子女缘分或表达欲偏内敛'}。`;
+  // 六亲（绑定印星/食伤具体落点）
+  const liuqin = `年柱看祖辈（${chart.sizhu.year[0]}${chart.sizhu.year[1]}）、月柱看父母（${chart.sizhu.month[0]}${chart.sizhu.month[1]}）、时柱看子女（${chart.sizhu.hour[0]}${chart.sizhu.hour[1]}）。${hasYin ? `印星见${yinLoc}，与长辈、学历、贵人之缘较深` : '印星不显，长辈助力有限，宜自强'}；${hasShiShang ? `食伤见${shishangLoc}，子女缘分、才华表达有向度` : '食伤不显，子女缘分或表达欲偏内敛'}。`;
 
-  // 健康（以天干+地支藏干全计的五行分布判偏枯，贴近"气"的真实强弱）
+  // 健康（按天干+地支藏干全计，溯源具体干支 → 五行偏枯 → 脏腑）
   const wx = wuxingFull(chart);
+  const src = { 木: [], 火: [], 土: [], 金: [], 水: [] };
+  [chart.sizhu.year, chart.sizhu.month, chart.sizhu.day, chart.sizhu.hour].forEach((p) => {
+    src[C.elementOfGan(p[0])].push(`天干${p[0]}`);
+    (C.ZHI_HIDDEN[p[1]] || []).forEach((g) => src[C.elementOfGan(g)].push(`${p[1]}藏${g}`));
+  });
   const entries = Object.entries(wx);
   const mx = entries.filter((e) => e[1] === Math.max(...entries.map((x) => x[1]))).map((e) => e[0]);
   const mn = entries.filter((e) => e[1] === Math.min(...entries.map((x) => x[1]))).map((e) => e[0]);
-  const health = `五行中${mx.join('、')}偏旺、${mn.join('、')}偏弱（按天干与地支藏干全计）。按五行对应脏腑：${mx.map((e) => HEALTH[e] + '易亢').join('、')}；${mn.map((e) => HEALTH[e] + '易弱').join('、')}。以上仅为基于五行类象的体质趋势分析，不能替代医学诊断，如有不适请及时就医。`;
+  const mxSrc = mx.map((e) => `${e}（因${src[e].join('、')}）`).join('；');
+  const mnSrc = mn.map((e) => `${e}（仅${src[e].join('、') || '全无'}）`).join('；');
+  const health = `五行全计中，${mx.join('、')}偏旺——${mxSrc}；${mn.join('、')}偏弱——${mnSrc}。对应脏腑：${mx.map((e) => HEALTH[e] + '易亢').join('、')}；${mn.map((e) => HEALTH[e] + '易弱').join('、')}。以上仅为基于五行类象的体质趋势分析，不能替代医学诊断，如有不适请及时就医。`;
 
   return (
     `【6.1 婚恋感情】${hun}\n` +
@@ -644,10 +851,30 @@ function xiyongZhinan(chart) {
   const industry = primaryEls.map((e) => INDUSTRY[e]).filter(Boolean).join('；');
   const direction = primaryEls.map((e) => DIRECTION[e]).filter(Boolean).join('、');
   const color = primaryEls.map((e) => COLOR[e]).filter(Boolean).join('、');
-  let habit;
-  if (th.kind.includes('寒') || th.kind.includes('湿')) habit = '命局偏寒湿，宜多晒太阳、居住向阳、喜温热饮食，忌久居阴冷潮湿之地。';
-  else if (th.kind.includes('燥') || th.kind.includes('热')) habit = '命局偏燥热，宜近水而居、多静少躁、清淡饮食，忌熬夜上火。';
-  else habit = '命局寒暖尚匀，保持作息规律、劳逸结合即可。';
+  // 生活习惯：结合调候五行与月令，句池确定性选句
+  const mz = chart.sizhu.month[1];
+  const el = th.needEl;
+  let habitPool;
+  if (th.kind.includes('寒') || th.kind.includes('湿')) {
+    habitPool = [
+      `命局偏寒湿（月令${mz}），宜以「${el}」温养：居向阳暖处、多晒晨光、饮食偏温热，忌久居阴冷潮湿之地。`,
+      `月令${mz}主寒湿，调候需「${el}」，生活宜暖衣暖食、住朝南向阳之屋，避湿寒侵体。`,
+      `命局气偏寒湿，取「${el}」为调候：作息宜早起迎阳、喜温热饮食，忌生冷与久坐湿地。`,
+    ];
+  } else if (th.kind.includes('燥') || th.kind.includes('热')) {
+    habitPool = [
+      `命局偏燥热（月令${mz}），宜以「${el}」润之：近水而居、多静少躁、饮食清淡，忌熬夜上火。`,
+      `月令${mz}主燥热，调候需「${el}」，宜居水木清幽之地、清淡饮食、早睡养阴，忌辛辣油腻。`,
+      `命局气偏燥热，取「${el}」为调候：作息宜避午时暴晒、多饮水、心境平和，忌急火攻心。`,
+    ];
+  } else {
+    habitPool = [
+      `命局寒暖尚匀（月令${mz}），无急迫调候，保持作息规律、劳逸结合即可。`,
+      `月令${mz}气机和顺，寒暖得中，起居随四时而动、饮食均衡即可。`,
+      `此命调候非急，四季宜平和起居、张弛有度，不必刻意避忌。`,
+    ];
+  }
+  const habit = pickFrom(habitPool, seedOf(chart, 'habit'));
 
   return (
     `【喜忌判定过程】按「调候用神 > 格局用神 > 扶抑用神」的优先级：①调候用神为「${tiaoShen}」（解决季节气候偏性）；②格局用神为「${gejuYong}」（成全格局成败）；③扶抑用神为「${fuYi}」。${unified}。\n` +
@@ -734,15 +961,38 @@ function dayunLiunian(chart) {
   }).slice(0, 4);
   const keyTxt = keyDayun.length
     ? keyDayun.map((d) => {
+      const g = d.pillar[0], z = d.pillar[1];
+      const gShen = C.shiShen(chart.day_master, g);
+      const zShen = C.shiShen(chart.day_master, C.ZHI_HIDDEN[z][0]);
       const els = pillarElements(d.pillar);
       const good = containsSet(els, yong);
-      const rels = dayunRelation(chart, d.pillar[1]);
-      const relTxt = rels.length
-        ? `；此运${d.pillar[1]}与原局${rels.join('、')}，易触发结婚、换工作、搬家、破财等变动，变动方向以所冲合之宫位对应领域为准`
-        : '；此运与原局无刑冲合害，变动较小、以平稳蓄势为主';
-      return `${d.start_age}-${d.start_age + 9}岁走${d.pillar}运：${good ? '干支贴用神，整体上扬、机遇多，宜积极进取' : '干支犯忌神，压力增大，宜守不宜攻'}${relTxt}。`;
+      const rels = dayunRelation(chart, z);
+      const relPool = rels.length
+        ? [
+            `；此运${z}与原局${rels.join('、')}，易触发婚恋、迁动、财帛等变动，方向以所冲合之宫位对应领域为准`,
+            `；且${z}动原局${rels.join('、')}，对应宫位易有起落，宜随变而安`,
+            `；复见${z}与原局${rels.join('、')}，主该运于相应人事有动静，宜早作打算`,
+          ]
+        : [
+            '；此运与原局无刑冲合害，变动较小、以平稳蓄势为主',
+            '；此运不犯原局冲合，宜稳中求进、蓄势待时',
+            '；此运干支安静，主循序渐进、波澜不惊',
+          ];
+      const goodPool = [
+        `天干${g}（${gShen}）、地支${z}（${zShen}）贴用神，整体上扬、机遇多，宜积极进取`,
+        `此运${gShen}${zShen}为喜用，事业生活多顺遂，宜乘势而上`,
+        `干支${g}${z}（${gShen}${zShen}）皆助喜用，运势抬头，宜主动作为`,
+      ];
+      const badPool = [
+        `天干${g}（${gShen}）、地支${z}（${zShen}）犯忌神，压力增大，宜守不宜攻`,
+        `此运${gShen}${zShen}为忌，多耗多阻，宜稳守蓄力`,
+        `干支${g}${z}（${gShen}${zShen}）逆喜用，诸事吃力，宜避重就轻`,
+      ];
+      const mainTxt = pickFrom(good ? goodPool : badPool, seedOf(chart, `dayun-${d.pillar}-${d.start_age}`));
+      const relTxt = pickFrom(relPool, seedOf(chart, `dayun-rel-${d.pillar}-${d.start_age}`));
+      return `${d.start_age}-${d.start_age + 9}岁（${d.start_age}岁起）走${d.pillar}运：${mainTxt}${relTxt}。`;
     }).join('\n')
-    : '各步大运以平稳过渡为主，无明显大起大落，随喜忌年份顺势而为即可。';
+    : `大运干支多属闲神，无明确喜忌起伏，随流年${chart.yongshen}、${chart.jishen}之向顺势而为即可。`;
 
   // 流年（近5年，含具体触发事件）
   const base = new Date().getFullYear();
@@ -760,12 +1010,21 @@ function dayunLiunian(chart) {
     liunian.push(`${y}年 ${gz}  ${tag}${evtTxt}`);
   }
 
+  // 关键年份预警：按命局特征（夫妻宫、喜忌神）生成，句池确定性选句
+  const dayZhi = chart.sizhu.day[1];
+  const warnPool = [
+    `流年冲合日支（夫妻宫${dayZhi}）多应婚恋感情，动${chart.jishen}之岁防破财口舌；逢忌神且冲原局之岁宜保守。以上为阶段趋势，具体境遇仍看个人抉择。`,
+    `岁运遇${chart.jishen}当值又冲原局者，多主压力与变动，宜守不宜攻；合入夫妻宫${dayZhi}则多应感情家宅之事。`,
+    `凡流年干支带${chart.jishen}或冲动日支${dayZhi}，当留心财帛、人际与家宅；带${chart.yongshen}则多顺遂。以上仅为阶段趋势。`,
+  ];
+  const warnTxt = pickFrom(warnPool, seedOf(chart, 'warn'));
+
   return (
     `【起运信息】年干${yearGan}为${yangYear ? '阳' : '阴'}年、${isMale ? '男' : '女'}命，故大运${forward ? '顺' : '逆'}排（阳男阴女顺排、阴男阳女逆排）。\n` +
     `【大运总览表】\n${table}\n` +
     `【关键大运详解】\n${keyTxt}\n` +
     `【近五年流年表】\n${liunian.join('\n')}\n` +
-    `【关键年份预警】流年冲夫妻宫多应婚恋、动财星多应财运；逢忌神且冲原局之岁，宜保守、防口舌破财。以上为阶段趋势，具体境遇仍看个人抉择。`
+    `【关键年份预警】${warnTxt}`
   );
 }
 
@@ -779,26 +1038,60 @@ function zongjie(chart) {
   const th = tiaoHou(chart.sizhu.month[1]);
   const yong = chart.yongshen;
 
-  // 病与药
+  // 病与药：绑定具体十神落点（如"官杀为忌""食伤泄秀"）
+  const cat = categoryLocs(chart);
+  const guanLoc = cat['官杀'].map(locDesc).join('、');
+  const yinLoc = cat['印星'].map(locDesc).join('、');
+  const shishangLoc = cat['食伤'].map(locDesc).join('、');
+  const caiLoc = cat['财星'].map(locDesc).join('、');
+  const bijieLoc = cat['比劫'].map(locDesc).join('、');
+
   let bing, yao;
   if (chart.strength === '身弱') {
-    bing = `日主身弱，克泄耗方（官杀+财+食伤）力量占优，如${chart.jishen}等泄耗过重`;
-    yao = `以${yong}帮身生扶，借印比之力稳住根基`;
+    const keParts = [guanLoc && `官杀（${guanLoc}）`, caiLoc && `财星（${caiLoc}）`, shishangLoc && `食伤（${shishangLoc}）`].filter(Boolean);
+    const shengParts = [yinLoc && `印星（${yinLoc}）`, bijieLoc && `比劫（${bijieLoc}）`].filter(Boolean);
+    bing = `日主${dm}身弱，"病"在克泄耗偏重：${keParts.join('、') || chart.jishen} 耗身太过`;
+    yao = `以${yong}帮身生扶（${shengParts.join('、') || '借印比之力'}），稳住根基`;
   } else if (chart.strength === '身强') {
-    bing = `日主身强，生扶方（印+比劫）力量过剩，如${chart.jishen}等再助则过亢`;
-    yao = `以${yong}泄克，疏其秀、耗其过，使归于中和`;
+    const shengParts = [yinLoc && `印星（${yinLoc}）`, bijieLoc && `比劫（${bijieLoc}）`].filter(Boolean);
+    const keParts = [guanLoc && `官杀（${guanLoc}）`, caiLoc && `财星（${caiLoc}）`, shishangLoc && `食伤（${shishangLoc}）`].filter(Boolean);
+    bing = `日主${dm}身强，"病"在生扶过剩：${shengParts.join('、') || chart.jishen} 再助则过亢`;
+    yao = `以${yong}泄克（${keParts.join('、') || '疏其秀、耗其过'}），使归于中和`;
   } else {
-    bing = `日主中和，但仍有${th.kind}之偏性需调`;
+    bing = `日主${dm}中和，但仍有${th.kind}之偏性需调（月令${chart.sizhu.month[1]}）`;
     yao = `以${yong}流通取用，顺应气候偏性`;
   }
 
-  const weak = chart.strength === '身弱' ? '身弱易被外界牵动，须借印比之力、避独扛' : chart.strength === '身强' ? '身强易刚愎，须泄秀、纳谏、防过刚' : '中和之体，忌偏执一端';
+  // 四条核心建议（事业/人际/生活/心态，绑定用神行业与调候）
+  const mainYong = yong.split('、')[0];
+  const shiyeAdvice = chart.strength === '身弱'
+    ? `选${chart.yongshen}所属行业（${INDUSTRY[mainYong]}），进大平台、循规借力`
+    : chart.strength === '身强'
+      ? `选${chart.yongshen}所属行业（${INDUSTRY[mainYong]}），主动开拓、发挥所长`
+      : `选${chart.yongshen}所属行业（${INDUSTRY[mainYong]}），顺势而为`;
+  const renjiAdvice = chart.strength === '身弱' ? '广结贵人、团队合作，勿单打独斗' : chart.strength === '身强' ? '适当放权、纳谏，防刚愎' : '不偏不倚、与人和善';
+  const shenghuoAdvice = th.needEl ? `起居顺应${th.kind}，调候取「${th.needEl}」` : '起居顺应四时，劳逸结合';
+  const xintaiPool = {
+    身弱: ['养精蓄锐、稳中求进，忌急于求成', '守静蓄力、以退为进，忌操之过急', '以柔克刚、厚积薄发，忌孤注一掷'],
+    身强: ['戒骄戒躁、以退为进，忌得意忘形', '虚怀若谷、盛时思退，忌恃强冒进', '谦和自牧、纳言避满，忌刚愎自用'],
+    中和: ['守中持平、不偏不倚，忌偏执一端', '随运取用、张弛有度，忌好走极端', '稳中求变、和而不流，忌因循守旧'],
+  };
+  const xintai = pickFrom(xintaiPool[chart.strength] || xintaiPool['中和'], seedOf(chart, 'xintai'));
+
+  // 正向引导：按命局特征从句池确定性选择
+  const zhengPool = [
+    `《周易》云："天行健，君子以自强不息。"命为先天趋势，运为后天条件，人的选择与行动才是最终变量。`,
+    `《周易》云："君子藏器于身，待时而动。"命局有缺，亦可凭后天选择趋吉避凶；好命不努力亦难成。`,
+    `《易》曰："地势坤，君子以厚德载物。"德与行是立身之本，命为势、运为时，操之在我。`,
+    `《易》云："乐天知命，故不忧。"知命而不认命，顺其势而修其德，方是安身之道。`,
+  ];
+  const zheng = pickFrom(zhengPool, seedOf(chart, 'zhengxiang'));
 
   return (
     `【命局核心矛盾】"病"：${bing}。"药"：${yao}。所有人生建议，都围绕"治病用药"展开，形成闭环。\n` +
     `【命局核心特质】日主${dm}（${dmEl}），${gs}，${chart.strength}，${th.kind}——${chart.strength === '身弱' ? '底子偏弱但可借力，格局有救应' : chart.strength === '身强' ? '底子厚实，须防过刚过满' : '底子均衡，胜在稳'}。\n` +
-    `【四条核心建议】1. 事业：选${chart.yongshen}所属行业（${INDUSTRY[yong.split('、')[0]]}），${chart.strength === '身弱' ? '进大平台、循规借力' : '主动开拓、发挥所长'}；2. 人际：${chart.strength === '身弱' ? '广结贵人、团队合作，勿单打独斗' : '适当放权、纳谏，防刚愎'};3. 生活：${th.needEl ? '起居顺应季节，调候取「' + th.needEl + '」' : '起居顺应四时，劳逸结合'}；4. 心态：${chart.strength === '身弱' ? '养精蓄锐、稳中求进，忌急于求成' : '戒骄戒躁、以退为进，忌得意忘形'}。\n` +
-    `【正向引导】《周易》云："天行健，君子以自强不息。"命为先天趋势，运为后天条件，人的选择与行动才是最终变量。好命不努力亦难成，命局有缺亦可凭后天选择趋吉避凶。`
+    `【四条核心建议】1. 事业：${shiyeAdvice}；2. 人际：${renjiAdvice}；3. 生活：${shenghuoAdvice}；4. 心态：${xintai}。\n` +
+    `【正向引导】${zheng}`
   );
 }
 
@@ -806,7 +1099,8 @@ function zongjie(chart) {
 function zhouyiSection(chart) {
   const { gua, tuiyan } = Z.derive(chart);
   const gdisplay = gua.map((g) => `${g.glyph}${g.name}（${g.xiang}）`).join('、');
-  let txt = `《易》以卦象穷天地万物之情，今以斯命合之：`;
+  const dmEl = C.elementOfGan(chart.day_master);
+  let txt = `《易》以卦象穷天地万物之情，今以日主${chart.day_master}（属${dmEl}行）之命合之：`;
   if (gua.length) txt += `主导之卦为${gdisplay}。`;
   txt += tuiyan;
   return txt;
